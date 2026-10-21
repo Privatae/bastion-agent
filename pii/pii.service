@@ -1,0 +1,51 @@
+# Standalone systemd packaging for the PII sterilization service, for a
+# machine that does not run it as a container (pii/Dockerfile). The service
+# is stdlib-only, so "packaging" is: a python3, the pii/ package, this unit,
+# and an env file.
+#
+# Install (as root):
+#   install -d /opt/privatae-pii
+#   cp -r pii /opt/privatae-pii/pii      # the package, tests and all
+#   install -m 600 /dev/null /etc/privatae-pii.env
+#   printf 'PII_API_KEY=%s\nLLM_URL=http://<model-host>:8090\n' "$(openssl rand -hex 24)" >> /etc/privatae-pii.env
+#   # no model host (a laptop)? use the in-process CPU sensor instead of LLM_URL:
+#   #   pip install gliner && echo 'PII_RECALL=gliner' >> /etc/privatae-pii.env
+#   cp /opt/privatae-pii/pii/pii.service /etc/systemd/system/privatae-pii.service
+#   systemctl daemon-reload && systemctl enable --now privatae-pii
+#
+# The vault lands in /var/lib/privatae-pii (StateDirectory, 0700, owned
+# by the DynamicUser). Bind stays loopback: the bastion forwarder
+# (PRIVATAE_PII_ADDR=127.0.0.1:8091) is the reachability story, not the bind.
+
+[Unit]
+Description=privatae PII sterilization service
+Documentation=https://git.privatae.ai/privatae/bastion-agent/src/branch/main/docs/pii-sterilization.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/opt/privatae-pii
+Environment=PII_BIND=127.0.0.1:8091
+Environment=PII_DB=/var/lib/privatae-pii/vault.db
+EnvironmentFile=/etc/privatae-pii.env
+ExecStart=/usr/bin/python3 -m pii.service
+Restart=always
+RestartSec=2
+
+# Containment: no shell, no privileges, private everything, one writable dir.
+DynamicUser=yes
+StateDirectory=privatae-pii
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

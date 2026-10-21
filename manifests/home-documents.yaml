@@ -1,0 +1,56 @@
+# bastion agent job manifest — example. Contract: docs/manifest.md.
+# Authored by the owner's host, signed with the host's CA-issued key, executed
+# verbatim by the bastion agent on this machine.
+# Validate: python3 -m bastion_agent validate manifests/*.yaml
+freeagent: 1
+id: home-documents
+owner:
+  host: owner-host
+
+scope:
+  roots:
+    - ~/Documents
+    - /srv/share/family
+  exclude:
+    - "**/node_modules/**"
+    - "**/.git/**"
+    - "**/*.key"
+    - "**/*.pem"
+  follow_symlinks: false
+  max_file_bytes: 268435456
+
+# the ceiling: every stage below must be covered here
+mask: [read, search, index, summarize]
+
+stages: [walk, extract, sanitize, chunk, embed, catalog, seal]
+
+sanitize:
+  mode: sterilize        # rules + local-model recall + vault; 'flag' = rules only
+  verify: false
+
+embed:
+  model: qwen3-embedding
+  dim: 1024
+  chunk:
+    size_tokens: 512
+    overlap_tokens: 64
+
+summarize:
+  model: qwen3.6-35b-a3b
+  per: [file, directory]
+
+sweep: daily
+
+sink:
+  catalog: host          # sealed catalog goes to the owner's host; corpus stays here
+  vectors: local
+  plaintext: never       # invariant — the loader refuses any other value
+
+# access moves, data does not: another host may point its retrieval here
+grants:
+  - host: partner-host
+    ops: [search]
+    until: 2026-12-31
+
+# signature block added by the signing step (docs/manifest.md);
+# the runtime refuses to run without it.

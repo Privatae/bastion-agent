@@ -1,0 +1,34 @@
+# bastion agent sweep — systemd USER unit (Linux). Runs the manifest's stages on
+# its cadence under the owner's account; the corpus never leaves that user's
+# permissions.
+#
+#   mkdir -p ~/.config/systemd/user ~/.config/bastion-agent
+#   cp bastion-agent/bastion-agent.service ~/.config/systemd/user/
+#   # environment (never in the manifest): recipients, endpoints, tools
+#   printf 'FREEAGENT_OWNER_RECIPIENT=age1...\nEMBED_URL=http://127.0.0.1:11434\n' > ~/.config/bastion-agent/env
+#   chmod 600 ~/.config/bastion-agent/env
+#   systemctl --user daemon-reload && systemctl --user enable --now bastion-agent
+#   journalctl --user -u bastion-agent -f
+#
+# Mac: a launchd agent with the same ExecStart (KeepAlive true); Windows: a
+# Scheduled Task "At log on" running the same command. Neither file is in
+# this repository.
+[Unit]
+Description=bastion agent sweep (%h/.config/bastion-agent/manifest.yaml)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/bastion-agent
+EnvironmentFile=%h/.config/bastion-agent/env
+# the repo checkout (or the packaged binary later); adjust to where it lives
+ExecStart=/usr/bin/python3 -m bastion_agent sweep %h/.config/bastion-agent/manifest.yaml --out %h/.local/share/bastion-agent/out
+Restart=on-failure
+RestartSec=60
+# the vault, stores and envelope are 0600 already; keep the unit from widening them
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
