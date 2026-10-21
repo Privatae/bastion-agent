@@ -14,6 +14,13 @@ Changes to the release tooling (`publish.sh`, `build.py`, `verify_release.py`)
 and to the documentation are listed under the version whose source first
 carried them, although they do not change what the `.pyz` does.
 
+## 0.1.15
+
+- **No change to what the agent does.** The README says how this repository
+  is published (one tagged snapshot per release, the same on GitHub) and that
+  issues and pull requests are welcome on GitHub, and it links the bastion's
+  SECURITY.md on GitHub.
+
 ## 0.1.14
 
 - **Rollout order: upgrade any running PII service before publishing this

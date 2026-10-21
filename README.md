@@ -62,7 +62,7 @@ approved; nobody installs it by hand. For each shared folder the bastion:
 
 The agent updates without asking: while a folder is shared, the bastion checks
 the agent's signed manifest every ten minutes and installs any newer version.
-The bastion's [SECURITY.md](https://git.privatae.ai/privatae/privatae-bastion/src/branch/main/SECURITY.md)
+The bastion's [SECURITY.md](https://github.com/Privatae/bastion/blob/main/SECURITY.md)
 says what that means for what you trust.
 
 ## Layout
@@ -129,6 +129,19 @@ repository. From this release on, each public snapshot carries the tag
 published before that has no tag, and can be checked from `built_from` only
 where that commit is available. A manifest from before signing has no
 signature file beside it, and the check refuses it.
+
+## How this repo is published
+
+Development happens in a private repository. This repository receives the
+source of each published release as one snapshot commit, tagged
+`v<version>`, whose tree is the source the signed manifest says the release
+was built from; that is why its history is short. The same snapshot is on
+GitHub at [github.com/Privatae/bastion-agent](https://github.com/Privatae/bastion-agent).
+Every published `.pyz` can be rebuilt from its tag and compared
+([Verify a release](#verify-a-release)).
+
+Issues and pull requests are welcome on GitHub. An accepted change is carried
+into the development repository and arrives here with the next release.
 
 ## Security and contributing
 
