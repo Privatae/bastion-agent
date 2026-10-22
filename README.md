@@ -18,7 +18,7 @@ published yet. Release manifests are published signed from 0.1.13 on, and the
 `.pyz` can be rebuilt from this source and compared
 ([Verify a release](#verify-a-release)).
 
-This repository is free software, licensed under the GNU General Public License version 3 or (at your option) any later version (see `LICENSE`). Copyright Privatae LLC. You may run it, read it, change it and redistribute it under that license. The Privatae platform the bastion connects to is separate, proprietary software and is not covered by this license. A member runs their own build on their own machine — nothing here depends on a Privatae-held credential or a Privatae-side build.
+This repository is free software, licensed under the GNU General Public License version 3 or (at your option) any later version (see `LICENSE`). Copyright Privatae LLC. You may run it, read it, change it and redistribute it under that license. The Host the bastion connects to is separate software and is not covered by this license: a C-Series Host is [Privatae/cseries](https://github.com/Privatae/cseries), under AGPL-3.0-only, and a Host on Privatae's own platform is proprietary software. A member runs their own build on their own machine — nothing here depends on a Privatae-held credential or a Privatae-side build.
 
 ## What it does
 

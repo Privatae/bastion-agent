@@ -14,6 +14,18 @@ Changes to the release tooling (`publish.sh`, `build.py`, `verify_release.py`)
 and to the documentation are listed under the version whose source first
 carried them, although they do not change what the `.pyz` does.
 
+## 0.1.16
+
+- **No change to what the agent does.** The README's license paragraph and
+  SECURITY.md name each kind of Host instead of only Privatae's platform: a
+  C-Series Host runs on your own machine and is open source (Privatae/cseries,
+  AGPL-3.0-only), C-Series Cloud and a network membership are optional and
+  paid, and a Host on Privatae's own platform is the case where the Host's
+  software is not open source.
+- **Security reports go to security@privatae.ai,** the address
+  privatae.ai/.well-known/security.txt names, and SECURITY.md links the
+  bastion's policy on GitHub, where anyone can read it.
+
 ## 0.1.15
 
 - **No change to what the agent does.** The README says how this repository

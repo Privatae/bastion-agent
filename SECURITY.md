@@ -4,7 +4,7 @@
 
 Please do not open a public issue for a security problem.
 
-Email **info@privatae.ai** with:
+Email **security@privatae.ai** with:
 
 - the agent's version (`python3 bastion-agent-<version>.pyz --version`) and
   platform,
@@ -50,11 +50,18 @@ example:
 
 - **The bastion**, which installs, updates and supervises the agent, signs its
   manifest and holds its keys. It is a separate program with its own policy:
-  [privatae-bastion's SECURITY.md](https://git.privatae.ai/privatae/privatae-bastion/src/branch/main/SECURITY.md).
+  [the bastion's SECURITY.md](https://github.com/Privatae/bastion/blob/main/SECURITY.md).
   Report there, or to the same address.
-- **The Privatae platform** the bastion connects to. It is separate software
-  with its own reporting path; reports about it sent to the address above are
-  forwarded.
+- **The Host** the bastion connects to, which is separate software. A
+  C-Series Host runs on your own machine, in its own Linux virtual machine;
+  its source is [Privatae/cseries](https://github.com/Privatae/cseries), under
+  AGPL-3.0-only, `npx cseries` installs the bastion beside it and pairs,
+  anchors and enrols it, and no Privatae account is needed. C-Series Cloud (a
+  Host on a server of its own that Privatae sets up and keeps patched) and a
+  Privatae network membership are optional and paid. A Host on Privatae's own
+  platform is the case where the Host's software is not open source; the
+  bastion keeps it to your grant and your approvals whatever the platform
+  does. Reports about a Host sent to the address above are forwarded.
 - **What the design already says it does not do.** The rules-only `flag` mode
   does not find names, and the recall pass is probabilistic
   ([docs/pii-sterilization.md](docs/pii-sterilization.md#limits)); the extract
