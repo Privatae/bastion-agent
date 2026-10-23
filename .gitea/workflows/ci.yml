@@ -62,9 +62,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$WANT"
       - name: no person's data in the tree
         # Reads files, runs nothing from the tree. The term check needs the
-        # maintainers' key, which a CI job never holds, so here it is skipped and
-        # the run says so; the entity-id, provenance, email and phone checks run.
-        run: python3 scripts/test_no_personal_data.py
+        # maintainers' key and the entity-id check the reserved ids, which a CI
+        # job never holds, so the job names files that do not exist: both
+        # classes are skipped and the run prints a NOTE for each; the
+        # provenance, email and phone checks run. Left at their defaults, a
+        # path that exists but cannot be read fails the run instead.
+        run: |
+          none="$PWD/.ci-holds-none/none"
+          NO_PERSONAL_DATA_KEY_FILE="$none" RESERVED_ENTITY_IDS_FILE="$none" python3 scripts/test_no_personal_data.py
 
   reproducible:
     needs: test

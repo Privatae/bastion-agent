@@ -17,30 +17,40 @@ lands here is published far past where it came from.
 
 This fails on:
 
-  term       a word or phrase from TERMS: the owner's and members' details that
-             were once copied into a repository (bank, employer, account
-             digits, places, names, addresses, a device, a customer, a person's
-             project, a Host's content, record ids). They are held as keyed
+  term       a word or phrase from TERMS, a list of details about real people
+             that must not appear in this repository. They are held as keyed
              digests, so this file does not publish what it keeps out, and a
              guess cannot be tested against the table without the key: every
              1-3 token n-gram of a line is normalised (lowercase letters and
              digits, joined by one space), HMAC-SHA256'd with the maintainers'
-             key and looked up. The key lives outside the repository
+             key and looked up. A backslash escape (\\n, \\t, \\x41, \\u00e9...)
+             separates tokens as whitespace would, so a term written right
+             after one is still found. The key lives outside the repository
              (NO_PERSONAL_DATA_KEY_FILE, default
              /etc/privatae/keys/no-personal-data.hmac), as do the plain list
              and the script that hashes it. Where the key is absent (a CI job,
              which holds no secrets) this class is skipped and the run says
-             so; the other classes always run. A key other than the one TERMS
+             so; the other classes still run. A key other than the one TERMS
              was made with fails the run (KEY_CHECK), since it would match
              nothing.
-  entity-id  a real entity id that labels a person's Host (RESERVED_ENTITY_IDS)
-             in entity-N, entity N, entity_id=N, "entity_id": N, entity id N,
-             Host N, Host #N or host-N form; examples and tests use 9000 and up
+  entity-id  a reserved entity id, one that labels a person's Host, in
+             entity-N, entity N, entity_id=N, "entity_id": N, entity id N,
+             Host N, Host #N or host-N form; examples and tests use 9000 and
+             up. The ids live outside the repository, one per line
+             (RESERVED_ENTITY_IDS_FILE, default
+             /etc/privatae/reserved-entity-ids). Where that file is absent (a
+             CI job) this class is skipped and the run says so; a file that
+             holds no id, or a line that is not one, fails the run, since it
+             would match nothing.
   provenance a line that says its data is real: "real rows" followed by
              "that" or "from", an all-caps "REAL" row, "verbatim" from a
              transcript or a run, a row "read off" an entity...
   email      a mailbox at a personal mail provider (gmail, yahoo, proton...)
   phone      a North American number outside the 555 fiction range
+
+A run of 24 or more base64 or base64url characters that decodes to mostly
+printable UTF-8 is decoded and its text checked for every class as well, so a
+value is not let through by being encoded.
 
 Every tracked text file is scanned, file names included, and every text member
 of each zip-format bundle (an app bundle is one), since a bundle is what
@@ -63,6 +73,8 @@ Exit 0 = clean; exit 1 + FAIL lines otherwise.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import os
 import re
@@ -118,13 +130,43 @@ TERMS: frozenset[str] = frozenset({
 })
 _NGRAM_MAX = 3
 
-# Entity ids of real Hosts that belong to people (the operator's own, members',
-# the platform's Security entity and the two security-test Hosts).
-RESERVED_ENTITY_IDS = (3, 102, 122, 123, 128, 163, 164)
-_IDS = "|".join(str(i) for i in RESERVED_ENTITY_IDS)
-ENTITY_ID = re.compile(
-    r"\b(?:entit(?:y|ies)(?:[-_ ]|_id\s*==?\s*|_id[\"']?\s*:\s*|\s+id\s+|\s+#)"
-    r"|Host\s+#?|host-)(?:%s)\b" % _IDS, re.I)
+# The reserved entity ids are read from a file outside the repository, one id
+# per line; blank lines and lines starting with # are ignored.
+RESERVED_ENTITY_IDS_FILE = os.environ.get("RESERVED_ENTITY_IDS_FILE", "/etc/privatae/reserved-entity-ids")
+
+
+def load_reserved_ids(path: str = RESERVED_ENTITY_IDS_FILE):
+    """(ids, error). A missing file is (None, None): the class is skipped. A
+    file that cannot be read, holds a line that is not an id, or holds no id
+    at all is (None, error): a list that matches nothing must not pass."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return None, None
+    except (OSError, UnicodeDecodeError) as e:
+        return None, "the reserved entity ids at %s cannot be read: %s" % (path, e)
+    ids = []
+    for n, raw in enumerate(lines, 1):
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        if not s.isdigit():
+            return None, "%s:%d is not an entity id (one id per line)" % (path, n)
+        ids.append(int(s))
+    if not ids:
+        return None, "%s holds no entity id, so the entity-id check would match nothing" % path
+    return tuple(ids), None
+
+
+def entity_id_pattern(ids):
+    """The entity-id class for these ids, or None (the class is off)."""
+    if not ids:
+        return None
+    alts = "|".join(str(i) for i in sorted(set(ids), key=lambda i: -len(str(i))))
+    return re.compile(
+        r"\b(?:entit(?:y|ies)(?:[-_ ]|_id\s*==?\s*|_id[\"']?\s*:\s*|\s+id\s+|\s+#)"
+        r"|Host\s+#?|host-)(?:%s)\b" % alts, re.I)
 
 PROVENANCE = re.compile(
     r"\breal rows? (?:that|from|read|copied|taken|off)\b"
@@ -181,13 +223,25 @@ def key_matches(key: bytes) -> bool:
     return hmac.compare_digest(digest(KEY_CHECK_TEXT, key), KEY_CHECK)
 
 
+# A backslash escape as source and data files write it: a named control
+# character, a hex or unicode escape, or an octal one. "a\nb" is two words, but
+# the tokenizer alone reads "a" and "nb". The line is read once as written and
+# once with each escape turned into a space; a hit in either counts. Reading it
+# as written too keeps a term that follows a backslash which is not an escape
+# (a Windows path: C:\name) whole.
+_ESCAPE = re.compile(r"\\(?:x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|[0-7]{1,3}|[abefnrtv])")
+
+
 class TermScanner:
     """Finds TERMS in a line by hashing its 1-3 token n-grams. Digests are
-    cached, so a repeated n-gram is hashed once."""
+    cached, so a repeated n-gram is hashed once. It also carries the
+    entity-id pattern for the reserved ids (None: that class is off)."""
 
-    def __init__(self, terms, key):
+    def __init__(self, terms, key, entity_ids=None):
         self.terms = terms
         self.key = key
+        self.entity_ids = entity_ids
+        self.entity_re = entity_id_pattern(entity_ids)
         self._cache = {}
 
     def _hit(self, gram: str) -> bool:
@@ -195,16 +249,64 @@ class TermScanner:
             self._cache[gram] = digest(gram, self.key) in self.terms
         return self._cache[gram]
 
+    def _grams(self, text: str) -> dict:
+        toks = [t.lower() for t in _TOKEN.findall(text)]
+        hits = {}
+        for n in range(1, _NGRAM_MAX + 1):
+            for i in range(len(toks) - n + 1):
+                gram = " ".join(toks[i:i + n])
+                if self._hit(gram):
+                    hits[gram] = hits.get(gram, 0) + 1
+        return hits
+
     def scan(self, line: str) -> int:
         if self.key is None:
             return 0
-        toks = [t.lower() for t in _TOKEN.findall(line)]
-        found = 0
-        for n in range(1, _NGRAM_MAX + 1):
-            for i in range(len(toks) - n + 1):
-                if self._hit(" ".join(toks[i:i + n])):
-                    found += 1
-        return found
+        hits = self._grams(line)
+        if "\\" in line:
+            for gram, n in self._grams(_ESCAPE.sub(" ", line)).items():
+                hits[gram] = max(hits.get(gram, 0), n)
+        return sum(hits.values())
+
+
+# ── values inside base64 ─────────────────────────────────────────────────────
+# A run of base64 or base64url characters, with its padding. The run is decoded
+# at each of the four offsets, since it may be glued to the text before it or
+# cut by a window edge; an offset whose bytes are mostly printable UTF-8 is the
+# text. Random bytes almost never are, so identifiers, paths and digests that
+# happen to be base64-shaped decode to nothing worth reading.
+_B64_RUN = re.compile(r"[A-Za-z0-9+/_-]{24,}={0,2}")
+_B64_MIN = 24
+_B64_PRINTABLE = 0.85
+# A decoded text may itself hold base64; it is followed this many levels down.
+_B64_DEPTH = 2
+
+
+def _printable_share(text: str) -> float:
+    if not text:
+        return 0.0
+    ok = sum(1 for ch in text if ch in "\t\n\r" or (ch.isprintable() and ch != "\ufffd"))
+    return ok / len(text)
+
+
+def b64_texts(line: str):
+    """The text of every base64 run in line that decodes to mostly printable
+    UTF-8, one per run."""
+    for m in _B64_RUN.finditer(line):
+        run = m.group(0).rstrip("=").replace("-", "+").replace("_", "/")
+        for off in range(4):
+            body = run[off:]
+            body = body[:len(body) - len(body) % 4] if len(body) % 4 == 1 else body
+            if len(body) < _B64_MIN:
+                break
+            try:
+                raw = base64.b64decode(body + "=" * (-len(body) % 4), validate=True)
+            except (ValueError, binascii.Error):
+                continue
+            text = raw.decode("utf-8", "replace")
+            if _printable_share(text) >= _B64_PRINTABLE:
+                yield text
+                break
 
 
 # A minified asset or a bundle member can hold one line of megabytes. It is read
@@ -241,16 +343,66 @@ def line_hits(line: str, scanner: TermScanner):
 
 # Classes whose line would carry the personal value itself: their FAIL line
 # names the file, the line and the class, never the text, so a CI log does not
-# publish what the gate keeps out.
+# publish what the gate keeps out. A line that holds one shows no text for any
+# finding, since another class's excerpt of the line would carry the value too.
 _QUIET = {"term", "email", "phone"}
 
 
-def line_findings(line: str, scanner: TermScanner):
+_PATH_SEP = re.compile(r"([/!])")
+
+
+def shown_path(label: str, scanner: TermScanner) -> str:
+    """label as a FAIL line shows it. A path component (a directory, a file
+    name, a bundle member's name) that holds a quiet value is replaced by a
+    placeholder giving its depth, so the line says where without the text. A
+    value that runs across components withholds them all."""
+    def quiet(text):
+        return any(cls in _QUIET for cls, _ in line_findings(text, scanner))
+
+    if not quiet(label):
+        return label
+    parts = _PATH_SEP.split(label)
+
+    def masked(every):
+        out, depth = [], 0
+        for p in parts:
+            if p in ("/", "!"):
+                out.append(p)
+                continue
+            depth += 1
+            out.append("<withheld %d>" % depth if every or quiet(p) else p)
+        return "".join(out)
+
+    shown = masked(False)
+    return masked(True) if quiet(shown) else shown
+
+
+def line_report(label: str, n: int, line: str, scanner: TermScanner, allow=(), used=None,
+                skip_entity_ids: bool = False):
+    """(class, FAIL text) for each finding on line n of label that no allow
+    entry covers."""
+    used = set() if used is None else used
+    hits = list(line_hits(line, scanner))
+    quiet = any(cls in _QUIET for _part, cls, _what in hits)
+    out = []
+    where = None
+    for part, cls, what in hits:
+        if (cls == "entity-id" and skip_entity_ids) or allowed(allow, label, cls, part, used):
+            continue
+        if where is None:
+            where = shown_path(label, scanner)
+        shown = "" if quiet else part.strip()[:140]
+        out.append((cls, ("%s:%d  [%s: %s]  %s" % (where, n, cls, what, shown)).rstrip()))
+    return out
+
+
+def line_findings(line: str, scanner: TermScanner, _depth: int = 0):
     out = []
     for _ in range(scanner.scan(line)):
         out.append(("term", "a listed term"))
-    for m in ENTITY_ID.finditer(line):
-        out.append(("entity-id", m.group(0)))
+    if scanner.entity_re is not None:
+        for m in scanner.entity_re.finditer(line):
+            out.append(("entity-id", m.group(0)))
     for m in PROVENANCE.finditer(line):
         out.append(("provenance", m.group(0)))
     for m in EMAIL.finditer(line):
@@ -258,6 +410,10 @@ def line_findings(line: str, scanner: TermScanner):
     for m in PHONE.finditer(line):
         if (m.group(2) or m.group(5)) != "555":
             out.append(("phone", "a phone number"))
+    if _depth < _B64_DEPTH:
+        for text in b64_texts(line):
+            for cls, what in line_findings(text, scanner, _depth + 1):
+                out.append((cls, what if what.endswith("(in base64)") else what + " (in base64)"))
     return out
 
 
@@ -363,32 +519,61 @@ def self_test():
 
     fails = []
     probe_key = os.urandom(32)
+    # Invented ids stand in for the reserved ones, which this file never holds.
+    probe_ids = (9101, 9202, 9303)
     sc = TermScanner(frozenset(digest(g, probe_key) for g in ("zorblaxquent", "quilmar vesk", "tam orvel prax")),
-                     probe_key)
+                     probe_key, probe_ids)
 
     def classes(line):
         return {c for c, _ in line_findings(line, sc)}
 
+    def b64(s: str, url: bool = False) -> str:
+        enc = base64.urlsafe_b64encode if url else base64.b64encode
+        return enc(live(s).encode("utf-8")).decode("ascii").rstrip("=" if url else "")
+
     positives = [(c, live(s)) for c, s in [
         ("term", "pays into the Zorblaxquent ledger"), ("term", "QUILMAR-vesk sent it"),
         ("term", "a tam_orvel.prax file"),
-        ("entity-id", "entity_id=|3,"), ("entity-id", '"entity_id": |128'), ("entity-id", "Entity |164's app"),
-        ("entity-id", "kubectl -n entity-|3 exec"), ("entity-id", "pod entity-|3-0 restarted"), ("entity-id", "measured on Host #|163"),
-        ("entity-id", "gitea_user = 'host-|3'"), ("entity-id", "entity id |122 knocked"),
+        # A term right after a backslash escape, as a string literal or a JSON
+        # value writes it, and after a backslash that is not one.
+        ("term", r'"line one\nZorblax|quent"'), ("term", r"col\tzorblax|quent\tcol"),
+        ("term", r"end\r\nquilmar| vesk"), ("term", r"a\x41zorblax|quent"), ("term", r"x\u00e9zorblax|quent"),
+        ("term", r"C:\Users\zorblax|quent\notes"),
+        ("entity-id", "entity_id=|9101,"), ("entity-id", '"entity_id": |9202'), ("entity-id", "Entity |9303's app"),
+        ("entity-id", "kubectl -n entity-|9101 exec"), ("entity-id", "pod entity-|9101-0 restarted"),
+        ("entity-id", "measured on Host #|9303"), ("entity-id", "gitea_user = 'host-|9101'"),
+        ("entity-id", "entity id |9202 knocked"),
         ("provenance", "the real| rows that fired on the Host"), ("provenance", "the REAL| row 9"),
         ("provenance", "verbatim| from the transcript"), ("provenance", "read| off entity 9001"),
         ("email", "mail ana.b@gm|ail.com today"), ("email", "x@proto|nmail.com"),
         ("phone", "call +1 (2|02) 555-|0100 or +1 30|1 444 1234"), ("phone", "+1|3014441234"),
     ]]
+    # Every class is read inside base64 and base64url, padded or not, whole or
+    # glued to the text before it.
+    positives += [
+        ("term", 'data: "%s"' % b64("a note that names Zorblax|quent outright")),
+        ("term", "token=%s" % b64("pays QUILMAR| vesk ~~ été ok??", url=True)),
+        ("term", "xyz" + b64("a note that names Zorblax|quent outright")),
+        ("term", b64(b64("twice over: zorblax|quent, still found"))),
+        ("entity-id", "blob %s end" % b64("the pod entity-|9101-0 restarted twice")),
+        ("email", "%s" % b64("write to ana.b@gm|ail.com about it")),
+    ]
     negatives = [live(s) for s in [
-        "zorblax quent", "quilmar", "a vesk quilmar", "orvel prax tam",
-        "entity_id=9003", "entity_id=30", "entity 1023", "entity-3x", "host-31", "Host 7",
-        "entity-9310-0.svc", "the v0.3.128 tag", "entity_id = <id>",
+        "zorblax quent", "quilmar", "a vesk quilmar", "orvel prax tam", r"zorblax\nquent",
+        "entity_id=91011", "entity_id=910", "entity 92021", "entity-9101x", "host-91012", "Host 9104",
+        "entity-9310-0.svc", "the v0.9.9101 tag", "entity_id = <id>",
         "real rows in a throwaway container", "the real row replaces the echo",
         "returns the text verbatim", "ana@example.com", "a•••@gmail.com shows the first letter",
         "+1 415 555 0199", "+1|5555550100", "ids 2026091812345", "port 8800, 4096 MiB",
         "MemoryHigh=15032385536 MemoryMax=17179869184", "2026-10-07 12:00",
         "widths 278 584 556 1015 667 722",
+        # Base64-shaped text that is not base64 of text: identifiers, paths,
+        # digests and random bytes are not decoded into findings.
+        "TestPublishedSourceCarriesNoOldInternalNameAnywhere",
+        "/usr/local/lib/python3/site-packages/zorbtool/__init__",
+        "sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59",
+        base64.b64encode(bytes(range(200, 256))).decode("ascii"),
+        b64("a plain note with nothing listed in it at all"),
     ]]
     for cls, line in positives:
         if cls not in classes(line):
@@ -408,11 +593,41 @@ def self_test():
     # The real table is wired: every entry is a digest of the right shape.
     if not TERMS or not all(re.fullmatch(r"[0-9a-f]{32}", k) for k in TERMS):
         fails.append("self-test: TERMS is empty or malformed")
+    # A line holding a quiet value shows no text for any finding on it: here a
+    # provenance phrase beside a mailbox, and one base64 run holding both an
+    # entity id and a term.
+    blob = b64("the pod entity-|9101-0 belongs to zorblax|quent")
+    for line, want, secret in ((live("the real| rows that came from ana.b@gm|ail.com"),
+                                {"provenance", "email"}, live("ana.b@gm|ail")),
+                               ("note %s end" % blob, {"entity-id", "term"}, blob[:24])):
+        got = line_report("x.md", 1, line, sc)
+        if {c for c, _ in got} != want or any(secret in t for _c, t in got):
+            fails.append("self-test: a line with a quiet value is reported without its text, got %s" % got)
+    # A path that holds a quiet value is shown with that component withheld,
+    # by depth; one split across components withholds them all.
+    for label, want in (("docs/zorblaxquent-notes.md", "docs/<withheld 2>"),
+                        ("app.bundle!notes/" + live("ana.b@gm|ail.com") + ".txt", "app.bundle!notes/<withheld 3>"),
+                        ("quilmar/vesk.md", "<withheld 1>/<withheld 2>"),
+                        ("docs/readme.md", "docs/readme.md")):
+        if shown_path(label, sc) != want:
+            fails.append("self-test: path %r shown as %r, want %r" % (label, shown_path(label, sc), want))
+    got = line_report("docs/" + live("ana.b@gm|ail.com") + ".md", 1, live("the real| rows that"), sc)
+    if [t for _c, t in got] != [live("docs/<withheld 2>:1  [provenance: real| rows that]  the real| rows that")]:
+        fails.append("self-test: a FAIL line's path is shown withheld, got %s" % got)
+    # A term is counted once per place it stands, however many ways it is read.
+    got = [c for c, _ in line_findings(live(r"a\nzorblax|quent b"), sc)]
+    if got != ["term"]:
+        fails.append("self-test: a term after an escape is one hit, got %s" % got)
     # Without a key the term class is off and nothing else changes.
-    keyless = TermScanner(sc.terms, None)
-    got = {c for c, _ in line_findings(live("the zorblax|quent ledger, entity_id=|3, x@proto|nmail.com"), keyless)}
+    planted = live("the zorblax|quent ledger, entity_id=|9101, x@proto|nmail.com")
+    keyless = TermScanner(sc.terms, None, probe_ids)
+    got = {c for c, _ in line_findings(planted, keyless)}
     if got != {"entity-id", "email"}:
         fails.append("self-test: without a key only the term class is off, got %s" % sorted(got))
+    # Without the ids the entity-id class is off and nothing else changes.
+    got = {c for c, _ in line_findings(planted, TermScanner(sc.terms, probe_key))}
+    if got != {"term", "email"}:
+        fails.append("self-test: without the ids only the entity-id class is off, got %s" % sorted(got))
     # A key other than the one TERMS was made with is told apart from it.
     if key_matches(probe_key) or key_matches(b""):
         fails.append("self-test: a key TERMS was not made with passes the key check")
@@ -426,6 +641,18 @@ def self_test():
         if len(entries) != 1 or len(errors) != 2:
             fails.append("self-test: the allow file reader kept %d entries and %d errors, want 1 and 2"
                          % (len(entries), len(errors)))
+        # The reserved ids are read one per line; a missing file turns the
+        # class off, and a file that would match nothing is an error.
+        idf = os.path.join(td, "ids")
+        for body, want in (("# reserved\n9101\n\n 9202 \n", ((9101, 9202), False)),
+                           ("9101\nentity-9202\n", (None, True)), ("# none\n\n", (None, True)), ("", (None, True))):
+            with open(idf, "w", encoding="utf-8") as f:
+                f.write(body)
+            ids, err = load_reserved_ids(idf)
+            if (ids, err is not None) != want:
+                fails.append("self-test: reserved ids %r read as %r, %r" % (body, ids, err))
+        if load_reserved_ids(os.path.join(td, "absent")) != (None, None):
+            fails.append("self-test: a missing reserved-ids file is not (None, None)")
         # A zip-format bundle is opened by its signature, whatever it is named
         # (an app bundle, or a .zip such as a browser extension a site serves),
         # and its text members are read.
@@ -469,13 +696,20 @@ def main(argv) -> int:
     key = load_key()
     if key is None:
         print("  NOTE  term check skipped: no key at %s (set NO_PERSONAL_DATA_KEY_FILE); "
-              "the entity-id, provenance, email and phone checks still run" % KEY_FILE)
+              "the other checks still run" % KEY_FILE)
     elif not key_matches(key):
         fails.append("the key at %s is not the one TERMS was made with, so it would match "
                      "nothing: point NO_PERSONAL_DATA_KEY_FILE at that key, or remake TERMS and KEY_CHECK" % KEY_FILE)
         print("  FAIL  %s" % fails[-1])
         key = None
-    scanner = TermScanner(TERMS, key)
+    ids, ids_error = load_reserved_ids()
+    if ids_error:
+        fails.append(ids_error)
+        print("  FAIL  %s" % ids_error)
+    elif ids is None:
+        print("  NOTE  entity-id check skipped: no reserved ids at %s (set RESERVED_ENTITY_IDS_FILE); "
+              "the other checks still run" % RESERVED_ENTITY_IDS_FILE)
+    scanner = TermScanner(TERMS, key, ids)
     used = set()
     findings = []
     counts = {}
@@ -488,21 +722,24 @@ def main(argv) -> int:
             continue
         for cls, what in line_findings(rel, scanner):
             if not allowed(allow, rel, cls, rel, used):
-                findings.append("%s  [%s: %s]  (file name)" % (rel, cls, what))
+                findings.append("%s  [%s: %s]  (file name)" % (shown_path(rel, scanner), cls, what))
                 counts[cls] = counts.get(cls, 0) + 1
         for label, text in texts(root, rel):
             n_texts += 1
             if text is None:
                 fails.append("%s has a zip signature but does not open as a zip, so its "
-                             "members cannot be read" % label)
+                             "members cannot be read" % shown_path(label, scanner))
                 print("  FAIL  %s" % fails[-1])
                 continue
+            # A bundle member's name installs with it, like a file name.
+            member = label[len(rel) + 1:]
+            for cls, what in (line_findings(member, scanner) if member else ()):
+                if not allowed(allow, label, cls, member, used):
+                    findings.append("%s  [%s: %s]  (bundle member name)" % (shown_path(label, scanner), cls, what))
+                    counts[cls] = counts.get(cls, 0) + 1
             for i, line in enumerate(text.splitlines(), 1):
-                for part, cls, what in line_hits(line, scanner):
-                    if (cls == "entity-id" and label == allow_rel) or allowed(allow, label, cls, part, used):
-                        continue
-                    shown = "" if cls in _QUIET else part.strip()[:140]
-                    findings.append(("%s:%d  [%s: %s]  %s" % (label, i, cls, what, shown)).rstrip())
+                for cls, finding in line_report(label, i, line, scanner, allow, used, label == allow_rel):
+                    findings.append(finding)
                     counts[cls] = counts.get(cls, 0) + 1
     for f in findings:
         print("  FAIL  %s" % f)

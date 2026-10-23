@@ -15,7 +15,9 @@ personal data is replaced with stable placeholder tokens, the real values stay
 in a local vault, and `/rehydrate` puts them back, locally, on demand. A cloud
 model can then work over the text without the values in it. Patterns alone
 cannot do this: "my daughter goes to Lincoln Elementary" contains no pattern,
-only meaning.
+only meaning. The agent the bastion deploys runs the rules pass only (`flag`
+mode), so names, street addresses and dates of birth stay in the text it
+returns ([sanitize.md](sanitize.md#modes-manifest-sanitizemode)).
 
 ## Pipeline (`pii/pipeline.py`)
 
@@ -116,7 +118,7 @@ Configuration, from the environment:
 | Variable | Default | Meaning |
 |---|---|---|
 | `PII_API_KEY` | (none) | Required. Without it the service refuses to start: `/rehydrate` returns real values, so there is no unauthenticated mode. (`PII_ALLOW_NOAUTH=1` exists for the unit tests only.) |
-| `PII_BIND` | `0.0.0.0:8091` | The address the service listens on; this is its exposure control. |
+| `PII_BIND` | `127.0.0.1:8091` | The address the service listens on; this is its exposure control. Another address only when set. |
 | `PII_DB` | `/data/vault.db` | The vault. |
 | `PII_RECALL` | `llm` | The recall backend (below). |
 | `LLM_URL` | `http://llm:8080` | The model server for `llm`. |
@@ -125,7 +127,9 @@ Configuration, from the environment:
 Two ways to run it, the same code:
 
 - **Container**: `pii/Dockerfile` (a pinned `python:*-slim` image, no pip
-  install; the vault on a mounted `/data`).
+  install; the vault on a mounted `/data`, writable by uid 10001, the
+  unprivileged user it runs as). Inside a container the default loopback bind
+  reaches nothing else, so set `PII_BIND` and publish the port deliberately.
 - **systemd**: `pii/pii.service`, with install steps in its header. It runs
   with `DynamicUser`, a private 0700 state directory for the vault
   (`/var/lib/privatae-pii/vault.db`), loopback bind (`127.0.0.1:8091`), and
@@ -167,9 +171,18 @@ the machine.
 Every detector is anchored by a checksum, a prefix or a fixed shape; none
 depends on a model.
 
-- **E-mail, phone, SSN, IPv4/IPv6, MAC.**
-- **Cards** → `CREDIT_CARD`, checked with Luhn.
-- **IBAN** → `BANK_ACCOUNT`: ISO 13616 mod-97 plus a per-country length
+- **E-mail, IPv4/IPv6, MAC.** A dotted number right after a version word
+  (`version 1.2.3.4`, `v1.2.3.4`) is not an IP address.
+- **Phone**: North American and other grouped national forms; international
+  numbers with `+` and a country code, any grouping, an optional `(0)` trunk
+  prefix; national numbers with a trunk `0` (`07700 900123`); a seven-digit
+  local number (`555-0142`) only after a word such as call, phone or tel.
+- **SSN**: dashed or spaced; nine bare digits only after `SSN` or `social
+  security` within 40 characters. Numbers never issued (area 000, 666, 900+;
+  group 00; serial 0000) are left alone.
+- **Cards** → `CREDIT_CARD`, with spaces, dots or dashes, checked with Luhn.
+  An expiry date or security code beside the card is not detected.
+- **IBAN** → `BANK_ACCOUNT`, in either case: ISO 13616 mod-97 plus a per-country length
   table. It runs before the card detector, so an IBAN's digits cannot be
   claimed as a card number.
 - **US ABA routing number** → `BANK_ACCOUNT`: the weighted checksum and a

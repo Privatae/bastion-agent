@@ -1,0 +1,104 @@
+# The checks of .gitea/workflows/ci.yml, for the copy of this repository on
+# GitHub. Gitea reads .gitea/workflows when it exists and then ignores this
+# directory, so each forge runs one of the two files, never both.
+#
+# The jobs, images and commands are the same as there. No action from the
+# marketplace is used: the commit is fetched with git from this repository's
+# public URL, so nothing outside this file and the pinned images runs. The job
+# token can only read.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  PY_FLOOR: python@sha256:1d52838af602b4b5a831beb13a0e4d073280665ea7be7f69ce2382f29c5a613f    # 3.8-slim
+  PY_CURRENT: python@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b  # 3.13-slim
+  # The PyYAML release bastion_agent/build.py vendors; the manifest loader imports it.
+  PYYAML: pyyaml==6.0.3
+  # The pull request's own head, or the pushed commit.
+  WANT: ${{ github.event.pull_request.head.sha || github.sha }}
+  REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: fetch the commit
+        run: |
+          set -euo pipefail
+          git init -q .
+          git fetch -q --depth=1 "$REPO_URL" "$WANT"
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$WANT"
+      - name: the 3.8 syntax floor
+        run: |
+          docker run --rm -v "$PWD":/src:ro -w /src "$PY_CURRENT" \
+            python -m unittest -v test_syntax_floor
+      - name: every test, on Python 3.8 and on a current Python
+        # age is installed so the seal round trips run instead of skipping.
+        run: |
+          set -euo pipefail
+          for img in "$PY_FLOOR" "$PY_CURRENT"; do
+            docker run --rm -v "$PWD":/src:ro -w /src -e PYYAML "$img" sh -euc '
+              python --version
+              apt-get -qq update >/dev/null
+              apt-get -qq install -y --no-install-recommends age >/dev/null
+              pip install -q --disable-pip-version-check --root-user-action=ignore "$PYYAML"
+              python -m unittest discover .'
+          done
+
+  personal-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: fetch the commit
+        run: |
+          set -euo pipefail
+          git init -q .
+          git fetch -q --depth=1 "$REPO_URL" "$WANT"
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$WANT"
+      - name: no person's data in the tree
+        # Reads files, runs nothing from the tree. The term check needs the
+        # maintainers' key and the entity-id check the reserved ids, which
+        # this job never holds, so both are skipped and the run prints a NOTE
+        # for each; the provenance, email and phone checks run.
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD":/src:ro -w /src "$PY_CURRENT" \
+            python -I scripts/test_no_personal_data.py --root /src
+
+  reproducible:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: fetch the commit
+        run: |
+          set -euo pipefail
+          git init -q .
+          git fetch -q --depth=1 "$REPO_URL" "$WANT"
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$WANT"
+      - name: two builds on each Python produce one sha256
+        # Anyone must be able to rebuild a release and get the published bytes,
+        # so the .pyz may not depend on the build or the Python that made it.
+        run: |
+          set -euo pipefail
+          for img in "$PY_FLOOR" "$PY_CURRENT"; do
+            docker run --rm -v "$PWD":/src:ro -w /src -e PYYAML "$img" sh -euc '
+              pip install -q --disable-pip-version-check --root-user-action=ignore "$PYYAML"
+              python -m bastion_agent.build --out /tmp/a | awk "{print \$NF}"
+              python -m bastion_agent.build --out /tmp/b | awk "{print \$NF}"'
+          done | tee digests
+          test "$(wc -l < digests)" -eq 4
+          test "$(sort -u digests | wc -l)" -eq 1
+          echo "every build is $(head -1 digests)"

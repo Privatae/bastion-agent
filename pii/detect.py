@@ -54,23 +54,54 @@ IPV4_RE = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d)(?!\.[\w-])")
 IPV6_RE = re.compile(r"(?<![\w:.])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![\w:])")
 
 SSN_RE = re.compile(r"(?<![\d-])(\d{3})-(\d{2})-(\d{4})(?![\d-])")
+# Spaced: not when the groups are part of a longer run of spaced digits.
+SSN_SPACED_RE = re.compile(r"(?<![\d-])(?<!\d )(\d{3}) (\d{2}) (\d{4})(?![\d-])(?! \d)")
+# Nine bare digits are an SSN only after a keyword: an invoice or order
+# number has the same shape.
+SSN_BARE_RE = re.compile(r"(?<![\w-])(\d{3})(\d{2})(\d{4})(?![\w-])")
+SSN_CUE_RE = re.compile(r"(?i)\b(?:ssn|ss#|social\s+security|soc\.?\s*sec\b)")
 
-# 13–19 digits with optional single space/dash separators; Luhn decides.
-CARD_RE = re.compile(r"(?<![\d-])\d(?:[ -]?\d){12,18}(?![\d-])")
+# 13–19 digits with optional single space/dot/dash separators; Luhn decides.
+# A dot right after a digit before it, or before a digit after it, makes the
+# run part of a longer dotted number.
+CARD_RE = re.compile(r"(?<![\d-])(?<!\d\.)\d(?:[ .-]?\d){12,18}(?![\d-])(?!\.\d)")
 
 # Digit-count and shape checks happen in code; this only shapes candidates.
 PHONE_RE = re.compile(
     r"(?<![\w.])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{1,4}\)[\s.-]?)?\d{2,4}(?:[\s.-]\d{2,4}){1,4}"
     r"(?![\w-])(?!\.[\w-])"   # a sentence-ending full stop is not part of the number
 )
+# International form: a leading + and country code, an optional (0) trunk
+# prefix or (area) code, then digit groups of any length (+44 7700 900123,
+# +49 (0)30 1234567, +442079460958). Groups after the first need a separator,
+# so a long digit run cannot be split many ways.
+INTL_PHONE_RE = re.compile(
+    r"(?<![\w+])\+\d{1,3}(?:[ .-]?\(\d{1,4}\))?[ .-]?\d{1,12}(?:[ .-]\d{1,8}){0,5}"
+    r"(?![\w-])(?!\.[\w-])"
+)
+# National form with a trunk 0 and a long subscriber group (07700 900123,
+# 030 1234567, (030) 1234567). The separator after the area code is required.
+NATIONAL_PHONE_RE = re.compile(
+    r"(?<![\w.+])(?:\(0\d{1,4}\) ?|0\d{1,4}[ .-])\d{3,8}(?:[ .-]\d{2,4}){0,2}"
+    r"(?![\w-])(?!\.[\w-])"
+)
+# A seven-digit local number (555-0142) is a phone only after a phone word;
+# order and reference numbers have the same shape.
+LOCAL_PHONE_RE = re.compile(r"(?<![\w.+-])\d{3}[ .-]\d{4}(?![\w-])(?!\.[\w-])")
+PHONE_CUE_RE = re.compile(
+    r"(?i)\b(?:call|calling|ring|phone|tel|telephone|mobile|cell|fax|text|dial|reach)\b")
+
+# A dotted number right after a version word is a version, not an address.
+VERSION_CUE_RE = re.compile(r"(?i)(?:\bv|\bversion|\bver\.?|\brelease|\bbuild|\bfirmware)\s*:?\s*$")
 
 
 # ── checksum-validated account identifiers (borrowed from Presidio's
 # recognizer list; only the ones a checksum can anchor are here) ──────────
 
 # IBAN: country code + 2 check digits + 11-30 alphanumerics, optional
-# spaces every 4. mod-97 == 1 decides (ISO 13616).
-IBAN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?(?![A-Za-z0-9])")
+# spaces every 4, in either case. mod-97 == 1 and the country's length
+# decide (ISO 13616), so random text of the same shape is not claimed.
+IBAN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2}\d{2}(?:[ ]?[A-Za-z0-9]{4}){2,7}(?:[ ]?[A-Za-z0-9]{1,4})?(?![A-Za-z0-9])")
 IBAN_LENGTHS = {
     "AD": 24, "AE": 23, "AL": 28, "AT": 20, "AZ": 28, "BA": 20, "BE": 16, "BG": 22,
     "BH": 22, "BR": 29, "CH": 21, "CR": 22, "CY": 28, "CZ": 24, "DE": 22, "DK": 18,
@@ -147,8 +178,17 @@ def _find_secrets(text):
 
 def _find_ibans(text):
     for m in IBAN_RE.finditer(text):
-        if _iban_ok(m.group(0)):
-            yield Finding(m.group(0), "BANK_ACCOUNT", m.start(), m.end())
+        # a spaced IBAN followed by a four-letter word ("... 7034 then")
+        # matches with the word attached; drop trailing groups until it checks
+        cand = m.group(0)
+        while True:
+            if _iban_ok(cand):
+                yield Finding(cand, "BANK_ACCOUNT", m.start(), m.start() + len(cand))
+                break
+            cut = cand.rfind(" ")
+            if cut < 0:
+                break
+            cand = cand[:cut]
 
 
 def _find_abas(text):
@@ -188,11 +228,17 @@ def _find_macs(text):
         yield Finding(m.group(0), "MAC_ADDRESS", m.start(), m.end())
 
 
+def _after_version_word(text, start):
+    return VERSION_CUE_RE.search(text[max(0, start - 12):start]) is not None
+
+
 def _find_ips(text):
     for m in IPV4_RE.finditer(text):
         try:
             ipaddress.IPv4Address(m.group(0))
         except ValueError:
+            continue
+        if _after_version_word(text, m.start()):
             continue
         yield Finding(m.group(0), "IP_ADDRESS", m.start(), m.end())
     for m in IPV6_RE.finditer(text):
@@ -204,10 +250,23 @@ def _find_ips(text):
         yield Finding(cand, "IP_ADDRESS", m.start(), m.end())
 
 
+def _ssn_ok(area, group, serial):
+    # never issued: area 000, 666 or 900-999, group 00, serial 0000
+    a = int(area)
+    return a != 0 and a != 666 and a < 900 and group != "00" and serial != "0000"
+
+
 def _find_ssns(text):
     for m in SSN_RE.finditer(text):
-        area = int(m.group(1))
-        if area == 0 or area == 666 or area >= 900:
+        if _ssn_ok(m.group(1), m.group(2), m.group(3)):
+            yield Finding(m.group(0), "SSN", m.start(), m.end())
+    for m in SSN_SPACED_RE.finditer(text):
+        if _ssn_ok(m.group(1), m.group(2), m.group(3)):
+            yield Finding(m.group(0), "SSN", m.start(), m.end())
+    for m in SSN_BARE_RE.finditer(text):
+        if not _ssn_ok(m.group(1), m.group(2), m.group(3)):
+            continue
+        if not SSN_CUE_RE.search(text[max(0, m.start() - 40):m.start()]):
             continue
         yield Finding(m.group(0), "SSN", m.start(), m.end())
 
@@ -225,6 +284,18 @@ def _find_phones(text):
         if not 10 <= len(digits) <= 15:
             continue
         yield Finding(m.group(0), "PHONE", m.start(), m.end())
+    for m in INTL_PHONE_RE.finditer(text):
+        # E.164 allows at most 15 digits; a (0) trunk prefix is not one of them
+        digits = re.sub(r"\D", "", m.group(0).replace("(0)", "", 1))
+        if 8 <= len(digits) <= 15:
+            yield Finding(m.group(0), "PHONE", m.start(), m.end())
+    for m in NATIONAL_PHONE_RE.finditer(text):
+        digits = re.sub(r"\D", "", m.group(0))
+        if 10 <= len(digits) <= 11:
+            yield Finding(m.group(0), "PHONE", m.start(), m.end())
+    for m in LOCAL_PHONE_RE.finditer(text):
+        if PHONE_CUE_RE.search(text[max(0, m.start() - 30):m.start()]):
+            yield Finding(m.group(0), "PHONE", m.start(), m.end())
 
 
 # Priority order: earlier detectors own their spans outright. Secrets go

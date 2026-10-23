@@ -153,6 +153,19 @@ class FlagModeTests(Case):
         self.assertEqual(s2["counts"]["ok"], s1["counts"]["ok"])
         self.assertFalse(idx["note.txt"].get("reused", False))
 
+    def test_text_kept_by_the_older_rules_is_redone(self):
+        # version 2 kept an international number and a lowercase IBAN in the
+        # clear; a store it wrote must not be reused by the wider rules
+        put(self.root, "intl.txt", "Mobile +44 7700 900123, iban gb82west12345698765432\n")
+        with mock.patch.object(sz, "SANITIZE_VERSION", 2):
+            self.run_stage(manifest(self.root, "flag"))
+        s, idx = self.run_stage(manifest(self.root, "flag"))
+        self.assertEqual(s["counts"]["reused"], 0)
+        out = self.text_of(idx["intl.txt"])
+        self.assertNotIn("7700 900123", out)
+        self.assertNotIn("gb82west", out)
+        self.assertEqual(idx["intl.txt"]["types"], {"PHONE": 1, "BANK_ACCOUNT": 1})
+
     def test_tokens_stable_across_files_in_scope(self):
         put(self.root, "again.txt", "ping m@example.com again\n")
         _, idx = self.run_stage(manifest(self.root, "flag"))

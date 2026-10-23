@@ -16,8 +16,35 @@ carried them, although they do not change what the `.pyz` does.
 
 ## 0.1.16
 
-- **No change to what the agent does.** The README's license paragraph and
-  SECURITY.md name each kind of Host instead of only Privatae's platform: a
+- **The rules pass finds more personal data on its own,** which matters
+  because it is all that `flag` mode, the mode the bastion deploys, runs.
+  Newly found: international phone numbers (`+44 7700 900123`,
+  `+49 (0)30 1234567`, no separators, dots or dashes), national numbers with a
+  trunk `0` (`07700 900123`), a seven-digit local number after a word such as
+  call or phone, IBANs written in lower case, card numbers written with dots,
+  SSNs written with spaces, and nine-digit SSNs with no separators when `SSN`
+  or `social security` comes just before them. A bare nine-digit number, a
+  seven-digit number with no phone word before it (`Order 555-0142`), a number
+  that fails its checksum and a date are still left alone; a reference number
+  that starts with `0` (`0123-456789`) is now taken for a national phone
+  number. An expiry date or security code beside a card is still not found.
+- **A dotted number right after a version word is no longer taken for an IP
+  address** (`version 1.2.3.4`), and SSNs that are never issued (group `00`,
+  serial `0000`) are no longer masked.
+- **Every file is sanitized again once after this upgrade** (`SANITIZE_VERSION`
+  3), so text kept by the older rules is redone.
+- **The docs say what the deployed mode leaves in.** The README, SECURITY.md
+  and the sanitize, serve and PII docs say plainly that `flag` mode does not
+  find names, street addresses or dates of birth, and that `sterilize` mode
+  adds a model that looks for them.
+- **The PII service listens on 127.0.0.1 by default** instead of every
+  interface; `PII_BIND` still chooses another address. Its container image runs
+  as uid 10001 instead of root, so a volume mounted on `/data` must be writable
+  by that user, and a container that should be reachable needs `PII_BIND` set.
+- **CI also runs on GitHub** (`.github/workflows/ci.yml`): the same jobs, the
+  same pinned images.
+- **The README's license paragraph and SECURITY.md name each kind of Host**
+  (docs only) instead of only Privatae's platform: a
   C-Series Host runs on your own machine and is open source (Privatae/cseries,
   AGPL-3.0-only), C-Series Cloud and a network membership are optional and
   paid, and a Host on Privatae's own platform is the case where the Host's
@@ -25,6 +52,18 @@ carried them, although they do not change what the `.pyz` does.
 - **Security reports go to security@privatae.ai,** the address
   privatae.ai/.well-known/security.txt names, and SECURITY.md links the
   bastion's policy on GitHub, where anyone can read it.
+- **How this repository is published.** From this release on, GitHub receives
+  each change merged since the last release as its own commit, titled as the
+  change was, instead of one commit per release, and the README says so.
+- **The personal-data check reads what it used to miss.** A listed term
+  written right after a backslash escape (`\n`, `\t`, `\u00e9`) is found, and
+  so is any value inside a run of base64 or base64url that decodes to text.
+  The reserved entity ids are read from `/etc/privatae/reserved-entity-ids`
+  (one per line, `RESERVED_ENTITY_IDS_FILE` to point elsewhere) instead of
+  being written in the script; where that file is absent, as in public CI,
+  the entity-id check is skipped and the run prints a NOTE, as the term check
+  already does without its key. A file that holds no id, or a line that is
+  not one, fails the run.
 
 ## 0.1.15
 

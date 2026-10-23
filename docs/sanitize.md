@@ -51,9 +51,12 @@ stages, there is no extract index, or the stage **stopped**; `2` completed with
 - **`flag`**: the rules pass **only**: deterministic, no model, milliseconds.
   It replaces the anchors a pattern can find: e-mail addresses, phone
   numbers, SSNs, cards, IBANs, routing numbers, crypto addresses, IP and MAC
-  addresses, API keys, private-key blocks, JWTs. **It does not find a name.**
-  A flag-mode catalog is not free of personal data, and the manifest doc says
-  so too.
+  addresses, API keys, private-key blocks, JWTs. It can also replace an
+  ordinary number that looks like a phone or ID number. **It does not find names,
+  street addresses, dates of birth**, or anything else that takes reading for
+  meaning (an employer, a school, a medical fact). It is the mode the bastion
+  writes into every manifest it deploys. A flag-mode catalog is not free of
+  personal data, and the manifest doc says so too.
 
 ## Where the sterilizer runs
 

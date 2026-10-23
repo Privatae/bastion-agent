@@ -62,8 +62,10 @@ example:
   platform is the case where the Host's software is not open source; the
   bastion keeps it to your grant and your approvals whatever the platform
   does. Reports about a Host sent to the address above are forwarded.
-- **What the design already says it does not do.** The rules-only `flag` mode
-  does not find names, and the recall pass is probabilistic
+- **What the design already says it does not do.** The rules-only `flag` mode,
+  which is the mode the bastion deploys, does not find names, street addresses
+  or dates of birth ([README](README.md#how-the-bastion-runs-it)), and the
+  recall pass of `sterilize` mode is probabilistic
   ([docs/pii-sterilization.md](docs/pii-sterilization.md#limits)); the extract
   store in the output folder is plaintext by design
   ([docs/runtime.md](docs/runtime.md#where-an-agent-lives-rootagent)); the

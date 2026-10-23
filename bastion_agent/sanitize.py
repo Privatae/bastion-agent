@@ -52,7 +52,7 @@ from .manifest import signing_digest
 
 # Part of the reuse key: bump it whenever the pipeline would sterilize the
 # same text differently, or a stored result from older code is kept as is.
-SANITIZE_VERSION = 2
+SANITIZE_VERSION = 3
 SANITIZE_CHUNK_CHARS = 20000     # per sterilize call; under the service's 2 MiB body cap
 SERVICE_TIMEOUT = 600.0
 

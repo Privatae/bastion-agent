@@ -19,7 +19,8 @@ exists for the unit-test harness only. /rehydrate returns REAL values —
 callers are trusted surfaces only; every call lands in the vault's audit
 table.
 
-Config (env): PII_BIND (host:port, default 0.0.0.0:8091), LLM_URL
+Config (env): PII_BIND (host:port, default 127.0.0.1:8091; another address
+only when set), LLM_URL
 (default http://llm:8080), PII_DB (default /data/vault.db),
 PII_LLM_TIMEOUT seconds (default 300).
 """
@@ -38,7 +39,7 @@ _MAX_BODY = 2 * 1024 * 1024
 
 class Config:
     def __init__(self, env):
-        self.bind = env.get("PII_BIND", "0.0.0.0:8091")
+        self.bind = env.get("PII_BIND", "127.0.0.1:8091")
         self.llm_url = env.get("LLM_URL", "http://llm:8080")
         self.db = env.get("PII_DB", "/data/vault.db")
         self.api_key = env.get("PII_API_KEY", "")

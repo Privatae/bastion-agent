@@ -2,7 +2,9 @@
 
 `serve` is how a host reads what the agent prepared without the data moving:
 a host (the owner's, or a grantee's) sends a query and gets **sanitized**
-chunks and catalog cards back. Nothing else has a route: not the extract
+chunks and catalog cards back (sanitized by the manifest's mode: in `flag`
+mode, which the bastion deploys, names, street addresses and dates of birth
+remain; [sanitize.md](sanitize.md#modes-manifest-sanitizemode)). Nothing else has a route: not the extract
 store, not the vault, not the vectors table. It is `bastion_agent/serve.py`,
 mutual TLS with the standard library's `ssl`.
 

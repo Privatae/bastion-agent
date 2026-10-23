@@ -47,12 +47,12 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(self.find("ref 4111 1111 1111 1112"), set())
 
     def test_ipv4_owns_dotted_span(self):
-        found = self.find("host at 192.168.68.54 responded")
-        self.assertIn(("192.168.68.54", "IP_ADDRESS"), found)
-        self.assertNotIn(("192.168.68.54", "PHONE"), found)
+        found = self.find("host at 198.51.100.54 responded")
+        self.assertIn(("198.51.100.54", "IP_ADDRESS"), found)
+        self.assertNotIn(("198.51.100.54", "PHONE"), found)
 
     def test_ipv4_invalid_octet(self):
-        self.assertNotIn(("999.168.68.541", "IP_ADDRESS"), self.find("x 999.168.68.541"))
+        self.assertNotIn(("999.51.100.541", "IP_ADDRESS"), self.find("x 999.51.100.541"))
 
     def test_ipv6_and_mac_disambiguation(self):
         found = self.find("fe80::1ff:fe23:4567:890a from aa:bb:cc:dd:ee:ff")
@@ -125,6 +125,87 @@ class DetectTests(unittest.TestCase):
 
     def test_secrets_do_not_fire_on_prose(self):
         self.assertEqual(self.find("the skate park (AKA the bowl) opens at 9"), set())
+
+
+class RulesOnlyFormatTests(unittest.TestCase):
+    """The rules pass is all that flag mode runs, so each format here must be
+    found with no recall model at all, and each lookalike must be left alone."""
+
+    FOUND = [
+        ("UK mobile, international", "Mobile: +44 7700 900123", "+44 7700 900123", "PHONE"),
+        ("German, (0) trunk prefix", "Tel. +49 (0)30 1234567", "+49 (0)30 1234567", "PHONE"),
+        ("international, no separators", "ring +442079460958 today", "+442079460958", "PHONE"),
+        ("international, dots", "fax +33.6.39.98.12.34 now", "+33.6.39.98.12.34", "PHONE"),
+        ("international, dashes", "cell +44-20-7946-0958.", "+44-20-7946-0958", "PHONE"),
+        ("UK national, trunk 0", "call 07700 900123 later", "07700 900123", "PHONE"),
+        ("German national, trunk 0", "Tel 030 1234567", "030 1234567", "PHONE"),
+        ("German national, (0xx)", "Tel (030) 1234567", "(030) 1234567", "PHONE"),
+        ("7-digit local after a phone word", "Ring 555-0142 for the gate code.", "555-0142", "PHONE"),
+        ("7-digit local, call", "call me on 555 0199", "555 0199", "PHONE"),
+        ("IBAN lowercase", "iban: gb82west12345698765432", "gb82west12345698765432", "BANK_ACCOUNT"),
+        ("IBAN lowercase, spaced", "pay de89 3704 0044 0532 0130 00 now",
+         "de89 3704 0044 0532 0130 00", "BANK_ACCOUNT"),
+        ("IBAN followed by a four-letter word", "to BE68 5390 0754 7034 then",
+         "BE68 5390 0754 7034", "BANK_ACCOUNT"),
+        ("card with dots", "Card 4111.1111.1111.1111", "4111.1111.1111.1111", "CREDIT_CARD"),
+        ("card with dashes", "card 5555-5555-5555-4444 ok", "5555-5555-5555-4444", "CREDIT_CARD"),
+        ("card after no.", "card no.4111 1111 1111 1111", "4111 1111 1111 1111", "CREDIT_CARD"),
+        ("card, 4-6-5 grouping", "amex 3782 822463 10005", "3782 822463 10005", "CREDIT_CARD"),
+        ("SSN with spaces", "SSN 219 09 9999", "219 09 9999", "SSN"),
+        ("SSN, no separators, keyword", "Social security number 219099999.", "219099999", "SSN"),
+        ("SSN, no separators, SSN:", "ssn: 219099999", "219099999", "SSN"),
+    ]
+
+    LEFT_ALONE = [
+        ("order number", "Order 555-0142 shipped"),
+        ("order number, digits only", "order #20431877 is packed"),
+        ("9-digit invoice id", "invoice 219099999 is due"),
+        ("16 digits failing Luhn, spaces", "ref 4111 1111 1111 1112"),
+        ("16 digits failing Luhn, dots", "ref 4111.1111.1111.1112"),
+        ("IBAN shape, bad checksum, lowercase", "iban gb82west12345698765433"),
+        ("IBAN shape, bad checksum, uppercase", "iban GB82WEST12345698765433 ok"),
+        ("version string", "version 1.2.3.4 shipped"),
+        ("version string, v", "upgrade to v1.2.3.4 today"),
+        ("ISO date", "released 2026-08-03 at noon"),
+        ("US date", "Date of birth: 03/14/1987"),
+        ("dotted date", "seen on 14.03.1987 in the hall"),
+        ("SSN shape, group 00", "ssn 219-00-9999"),
+        ("short number after +", "add +12 345 to it"),
+        ("spaced digits inside a longer run", "lot 4 219 09 9999 7"),
+    ]
+
+    def find(self, text):
+        return {(f.value, f.type) for f in detect.detect(text)}
+
+    def test_each_format_is_found(self):
+        for label, text, value, typ in self.FOUND:
+            with self.subTest(label):
+                self.assertIn((value, typ), self.find(text))
+
+    def test_lookalikes_are_left_alone(self):
+        for label, text in self.LEFT_ALONE:
+            with self.subTest(label):
+                self.assertEqual(self.find(text), set())
+
+    def test_rules_only_sterilize_leaves_no_value(self):
+        # what flag mode does: the pipeline with no recall model
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Vault(os.path.join(tmp, "v.db"))
+            for label, text, value, _ in self.FOUND:
+                with self.subTest(label):
+                    out, _ = pipeline.sterilize(text, "s", vault, lambda t: [],
+                                                escape_held_literals=True)
+                    self.assertNotIn(value, out)
+                    self.assertEqual(pipeline.rehydrate(out, "s", vault)[0], text)
+            for label, text in self.LEFT_ALONE:
+                with self.subTest(label):
+                    out, _ = pipeline.sterilize(text, "s", vault, lambda t: [],
+                                                escape_held_literals=True)
+                    self.assertEqual(out, text)
+
+    def test_ip_address_is_still_found_after_other_words(self):
+        self.assertIn(("203.0.113.42", "IP_ADDRESS"), self.find("Server at 203.0.113.42 refused."))
+        self.assertIn(("203.0.113.42", "IP_ADDRESS"), self.find("server 203.0.113.42 version 2"))
 
 
 class VaultTests(unittest.TestCase):
@@ -671,6 +752,14 @@ class ServiceTests(unittest.TestCase):
     def test_fail_closed_without_key(self):
         with self.assertRaises(SystemExit):
             service.Config({"PII_DB": "x"})
+
+    def test_default_bind_is_loopback(self):
+        # /rehydrate returns real values over plain HTTP: only an explicit
+        # setting may open the service beyond this machine
+        self.assertEqual(service.Config({"PII_DB": "x", "PII_API_KEY": "k"}).bind,
+                         "127.0.0.1:8091")
+        self.assertEqual(service.Config({"PII_DB": "x", "PII_API_KEY": "k",
+                                         "PII_BIND": "0.0.0.0:8091"}).bind, "0.0.0.0:8091")
 
     def test_fail_closed_on_unstartable_recall_backend(self):
         with self.assertRaises(SystemExit) as ctx:

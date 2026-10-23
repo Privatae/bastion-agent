@@ -30,13 +30,13 @@ failure stops the run:
 |---|---|---|
 | walk | the map of the folder: files, sizes, types, what the grant excludes | [walk.md](docs/walk.md) |
 | extract | text out of each file, with built-in extractors or local tools | [extract.md](docs/extract.md) |
-| sanitize | finds personal data and replaces it with tokens; the originals stay in a vault on this machine | [sanitize.md](docs/sanitize.md), [pii-sterilization.md](docs/pii-sterilization.md) |
+| sanitize | replaces the personal data its mode finds with tokens; the originals stay in a vault on this machine. In the mode the bastion deploys it does not find names, street addresses or dates of birth ([below](#how-the-bastion-runs-it)) | [sanitize.md](docs/sanitize.md), [pii-sterilization.md](docs/pii-sterilization.md) |
 | chunk, embed | splits the text and embeds it with a model on this machine | [embed.md](docs/embed.md) |
 | catalog | the curated dataset built from the stages above | [catalog.md](docs/catalog.md) |
 | seal | packs an allowlisted bundle of the catalog and encrypts it with age to the owner and the manifest's named recipients; the one way a dataset leaves the machine | [seal.md](docs/seal.md) |
 
-`serve` answers queries over the index with mutual TLS, returning sanitized
-chunks and catalog cards ([serve.md](docs/serve.md)). The gate refuses an
+`serve` answers queries over the index with mutual TLS, returning chunks and
+catalog cards from the sanitized text ([serve.md](docs/serve.md)). The gate refuses an
 unsigned, edited or foreign manifest, and the bastion never starts the agent
 without a valid one. (`--allow-unsigned` exists for development only; the
 bastion never passes it.) See [runtime.md](docs/runtime.md) and
@@ -51,6 +51,12 @@ approved; nobody installs it by hand. For each shared folder the bastion:
   installed agent with an older version;
 - mints the agent its own identity and writes and signs its manifest from the
   grant, so the agent works only on what you granted;
+- sets the sanitize stage to `flag` mode: rules only, no model. It replaces
+  e-mail addresses, phone numbers, card, bank and social security numbers, IP
+  and MAC addresses and keys. **It does not find names, street addresses or
+  dates of birth**, so text a Host receives from the agent still contains them.
+  `sterilize` mode adds a model on this machine that looks for those, and the
+  bastion does not set it ([sanitize.md](docs/sanitize.md#modes-manifest-sanitizemode));
 - points the embed stage at the model server on this machine (a local ollama)
   and at nothing else;
 - runs `serve` on the loopback address only, with mutual TLS, so the bastion is
@@ -86,7 +92,8 @@ python3 -m bastion_agent.build --out dist   # produces dist/bastion-agent-<ver>.
 python3 dist/bastion-agent-<ver>.pyz --version
 ```
 
-Every push runs the same checks in CI (`.gitea/workflows/ci.yml`).
+Every push runs the same checks in CI (`.gitea/workflows/ci.yml` on
+git.privatae.ai, `.github/workflows/ci.yml` on GitHub).
 
 The build is reproducible: the same commit gives the same bytes on any machine
 with PyYAML at the pinned version (`PYYAML_VERSION` in `build.py`).
@@ -122,21 +129,24 @@ A match means the file every bastion downloads is exactly what this source
 produces, and the signature means the release key holder published it. The
 exit code is 0 only when both hold.
 
-The public repository is a copy of each release's source, not the development
-history, so `built_from` names a commit that exists only in the development
-repository. From this release on, each public snapshot carries the tag
-`v<version>`, which marks the source the release was built from. A snapshot
-published before that has no tag, and can be checked from `built_from` only
-where that commit is available. A manifest from before signing has no
+The public repository does not carry the development history, so
+`built_from` names a commit that exists only in the development repository.
+Each published release from 0.1.14 on carries the tag `v<version>`, which
+marks the source the release was built from. Earlier releases have no tag
+here, and can be checked from `built_from` only where that commit is
+available. A manifest from before signing has no
 signature file beside it, and the check refuses it.
 
 ## How this repo is published
 
-Development happens in a private repository. This repository receives the
-source of each published release as one snapshot commit, tagged
-`v<version>`, whose tree is the source the signed manifest says the release
-was built from; that is why its history is short. The same snapshot is on
-GitHub at [github.com/Privatae/bastion-agent](https://github.com/Privatae/bastion-agent).
+Development happens in a private repository, and its history is not
+published. When a release is published, each change merged since the last one
+arrives on GitHub, at
+[github.com/Privatae/bastion-agent](https://github.com/Privatae/bastion-agent),
+as a commit with the same files, titled as the change was and dated when it
+was merged; the copy at git.privatae.ai receives the release as one commit.
+In both, the release is tagged `v<version>` on a commit whose tree is the
+source the signed manifest says the release was built from.
 Every published `.pyz` can be rebuilt from its tag and compared
 ([Verify a release](#verify-a-release)).
 
