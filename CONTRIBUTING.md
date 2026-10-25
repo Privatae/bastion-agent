@@ -11,6 +11,7 @@ From the repository root:
 
 ```sh
 python3 -m unittest discover .                    # every test, including the 3.8 floor
+python3 -m pyflakes bastion_agent pii scripts test_syntax_floor.py   # pyflakes==4.0.3, as CI runs it
 python3 -m bastion_agent.build --out /tmp/agent   # the .pyz and its .sha256
 python3 /tmp/agent/bastion-agent-*.pyz --version
 bash -n bastion_agent/publish.sh pii/verify-live.sh && sh -n bastion_agent/install.sh
@@ -19,7 +20,10 @@ bash -n bastion_agent/publish.sh pii/verify-live.sh && sh -n bastion_agent/insta
 - **All tests pass.** They need PyYAML (the manifest loader uses it), at the
   version `build.py` pins (`PYYAML_VERSION`) for the build tests. The
   round-trip seal tests are skipped where `age` and `age-keygen` are not
-  installed, so install them to run the whole suite.
+  installed, the TLS tests where `openssl` is not, and the release verifier's
+  end-to-end tests where `git` is not, so install them to run the whole suite.
+  CI installs them and fails on any skipped test.
+- **pyflakes finds nothing.** No unused import or variable, no undefined name.
 - **The Python 3.8 floor.** `test_syntax_floor.py` parses every module in
   `bastion_agent/` and `pii/` at 3.8 and denies the newer standard-library
   calls that parse on 3.8 and then fail at run time. The agent ships to

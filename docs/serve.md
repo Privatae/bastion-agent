@@ -33,11 +33,25 @@ There is no other credential: no token, no password, no header.
 
 | Route | Body | Returns |
 |---|---|---|
-| `POST /search` | `{query, k?}` (k defaults to 5 and is held to 1–50) | `{hits, k}`: the top k sanitized windows with score, document id, chunk id, index and offsets. The same search as the CLI, through the same `EMBED_URL` model ([embed.md](embed.md)); 502 if the model cannot be reached. |
-| `POST /read_range` | `{doc, start?, end}` | Up to 65,536 characters of the **sanitized** text of that document, with `total`. |
+| `POST /search` | `{query, k?}` (k defaults to 5 and is held to 1–50) | `{hits, k, sanitize_mode}`: the top k sanitized windows with score, document id, chunk id, index and offsets, and the sanitize mode that wrote them. The same search as the CLI, through the same `EMBED_URL` model ([embed.md](embed.md)); 502 if the model cannot be reached. |
+| `POST /read_range` | `{doc, start?, end}` | Up to 65,536 characters of the **sanitized** text of that document, with `total` and `sanitize_mode`. |
 | `GET /catalog`, `GET /catalog/dirs` | query `prefix`, `offset`, `limit` (default 500, at most 2,000) | The file cards or the directory cards (owner only), a page at a time: `{cards, kind, total, offset, limit, next_offset, prefix}`, `next_offset` being `null` on the last page. 404 until the first sweep has written a catalog. |
 | `GET /status` | | `{state}`: `run.state.json` (owner only). |
 | `GET /health` | | `{ok, id, serving}` for any client that chained. |
+
+`sanitize_mode` says what was done to the text in that reply: the mode the
+sanitize stage recorded for that document in `sanitize.jsonl`, `flag` or
+`sterilize`. A search names the weakest mode among its hits. It is `unknown`
+when that record does not vouch for the text: the last sanitize run did not
+write the document (it stopped, or the file is an older run's), the file was
+rewritten after the record (a sweep is running), or a search hit's text is no
+longer what the store holds (the chunks predate the latest sanitize run). A
+search with no hits names the manifest's `sanitize.mode`, or `none` when the
+manifest has no sanitize stage. In `flag` mode, the one the bastion deploys,
+names, street addresses and dates of birth remain in the text; only
+`sterilize` looks for them. Changing the manifest's mode does not change the
+field: after a change of mode the next sweep sanitizes every file again, and
+until it has, the text served is the previous mode's and the reply says so.
 
 `doc` is the document's content hash (64 lowercase hex), the same id the
 extract and sanitized stores share. The route reads only the `sanitize/`

@@ -16,6 +16,38 @@ carried them, although they do not change what the `.pyz` does.
 
 ## 0.1.16
 
+- **Every `search` and `read_range` reply names its sanitize mode**
+  (`sanitize_mode`: `flag` or `sterilize`, the mode the sanitize stage
+  recorded for the text in the reply; `unknown` when that record does not
+  vouch for it; a search with no hits names the manifest's mode, or `none`),
+  so the bastion and the Host can say what was done to the text. Switching
+  the manifest's mode does not relabel text an earlier sweep wrote. In `flag`
+  mode, the mode the bastion deploys, names, street addresses and dates of
+  birth remain. The field is new; nothing else in either reply changes.
+- **Each GitHub release carries its files.** Pushing a release tag starts
+  `.github/workflows/release.yml`, which runs the release check against the
+  published manifest, rebuilds the `.pyz` from the tag, and only when the
+  sha256 matches attaches the `.pyz`, its `.sha256`, `version.json` and its
+  signature to the release (making the release, with this file's section for
+  it, when the tag has none). It can be run again by hand for the version
+  the manifest names; older releases, whose manifest is no longer served,
+  cannot be given their files afterwards. The manifest's `notes` now link to
+  that GitHub release instead of the tag page on the forge.
+- **`verify_release` refuses a tag without its release record** (an annotated
+  tag with the line `built from <built_from>`, as every release tag from
+  0.1.14 on has), instead of building from any tag of that name. It gains
+  `--expect-version`, which refuses a manifest naming another version, and
+  `--out DIR`, which writes the rebuilt `.pyz` and `.sha256`, the manifest's
+  exact bytes and its signature once everything matched.
+- **CI runs every test and pyflakes.** The test job installs `git` too, so
+  the release verifier's seven end-to-end tests, which were skipped in CI, now
+  run, and a skipped test fails the job. pyflakes 4.0.3 runs on both forges;
+  the 31 findings it had (unused imports and variables) are fixed, and the
+  packages' re-exports are listed in `__all__`.
+- **The README says what it means.** The agent is deployed from a grant and
+  can also be run by hand; what crosses the tunnel is the catalog cards and
+  sanitized excerpts; building and testing need PyYAML 6.0.3; the CI badge is
+  the GitHub one.
 - **The rules pass finds more personal data on its own,** which matters
   because it is all that `flag` mode, the mode the bastion deploys, runs.
   Newly found: international phone numbers (`+44 7700 900123`,

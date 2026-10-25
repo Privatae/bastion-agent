@@ -340,7 +340,6 @@ def catalog(manifest, out_dir, env=None, summarizer=None, now=None):
             continue
         key = (w["root"], w["path"])
         counts["files"] += 1
-        name = w["path"].rsplit("/", 1)[-1]
         shown_path, changed = mask_path(w["path"], detect)
         masked = shown_path.rsplit("/", 1)[-1]
         counts["names_masked"] += changed

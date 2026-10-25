@@ -1,16 +1,18 @@
 # bastion agent
 
-[![ci](https://git.privatae.ai/privatae/bastion-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://git.privatae.ai/privatae/bastion-agent/actions)
+[![ci](https://github.com/Privatae/bastion-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Privatae/bastion-agent/actions/workflows/ci.yml)
 
 The small program the bastion runs on your own machine, for one folder.
 
-It is deployed **from a grant, never installed by a person**: the bastion fetches
+It is deployed **from a grant**, and you do not install it yourself: the bastion fetches
 `privatae.ai/bastion-agent/version.json`, checks its ed25519 release signature
 (`version.json.<first 16 hex of its sha256>.sig`) against the keys compiled into the bastion, downloads the `.pyz`
 and checks it against the sha256 in that signed manifest,
 mints a P-256 identity per store, writes and signs a manifest from the grant you
-approved, and supervises `sweep` and `serve`. Your files never leave the machine;
-what crosses the tunnel is the index and what the grant's mask allows.
+approved, and supervises `sweep` and `serve`. Your files stay on the machine;
+what crosses the tunnel is what the grant's mask allows: catalog cards, and
+the sanitized excerpts that `search` and `read_range` return, each reply naming
+the sanitize mode that made it (`sanitize_mode`, [serve.md](docs/serve.md)).
 
 The published version is whatever `privatae.ai/bastion-agent/version.json`
 names. `bastion_agent/VERSION` on `main` is the next release, which may not be
@@ -45,7 +47,9 @@ bastion never passes it.) See [runtime.md](docs/runtime.md) and
 ## How the bastion runs it
 
 The bastion installs and runs the agent itself from a folder grant you
-approved; nobody installs it by hand. For each shared folder the bastion:
+approved; you do not install it by hand. (The `.pyz` can also be installed and
+run by hand, to try it outside the bastion: [packaging.md](docs/packaging.md).)
+For each shared folder the bastion:
 
 - downloads the `.pyz` only through the signed manifest, and never replaces an
   installed agent with an older version;
@@ -87,13 +91,16 @@ package, which is what the built artifact has always looked like inside.
 ## Build and test
 
 ```sh
+pip install pyyaml==6.0.3                # the PyYAML build.py vendors; the manifest loader imports it
 python3 -m unittest discover .          # every module's tests, plus the 3.8 floor
 python3 -m bastion_agent.build --out dist   # produces dist/bastion-agent-<ver>.pyz + .sha256
 python3 dist/bastion-agent-<ver>.pyz --version
 ```
 
-Every push runs the same checks in CI (`.gitea/workflows/ci.yml` on
-git.privatae.ai, `.github/workflows/ci.yml` on GitHub).
+A test that needs `age`, `openssl` or `git` is skipped where that tool is not
+installed. Every push runs the same checks in CI (`.gitea/workflows/ci.yml` on
+git.privatae.ai, `.github/workflows/ci.yml` on GitHub), with the tools
+installed, so there no test is skipped, plus `pyflakes`.
 
 The build is reproducible: the same commit gives the same bytes on any machine
 with PyYAML at the pinned version (`PYYAML_VERSION` in `build.py`).
@@ -120,14 +127,29 @@ it); no key or account of ours. It:
    `bastion_agent/verify_release.py`, copied from `client-go/release_sign.go`
    in the bastion's repository;
 2. checks out the source of that version in a separate worktree: the tag
-   `v<version>`, or else the commit the manifest names as `built_from` if the
-   clone has it;
+   `v<version>`, which must be annotated with the line
+   `built from <built_from>`, or else the commit the manifest names as
+   `built_from` if the clone has it;
 3. rebuilds the `.pyz` with that version's own `build.py`, and compares its
    sha256 with every `.pyz` the manifest lists.
 
 A match means the file every bastion downloads is exactly what this source
 produces, and the signature means the release key holder published it. The
 exit code is 0 only when both hold.
+
+From 0.1.16 on, each GitHub release carries the `.pyz`, its `.sha256`, the
+signed manifest `version.json` and its signature `version.json.<h>.sig`. The
+release workflow (`.github/workflows/release.yml`) attaches them when the tag
+is pushed, after running this same check against the published manifest and
+rebuilding the `.pyz` from the tag; it attaches nothing if a digest differs.
+To check downloaded files yourself, `sha256sum -c bastion-agent-<ver>.pyz.sha256`
+checks the `.pyz` against its `.sha256`, the manifest lists the sha256 of both,
+and `check_signature` in `bastion_agent/verify_release.py` checks the manifest
+against the pinned release keys:
+
+```sh
+python3 -c 'import sys; from bastion_agent import verify_release as v; print(v.check_signature(open(sys.argv[1], "rb").read(), open(sys.argv[2]).read())[0]["files"])' version.json version.json.*.sig
+```
 
 The public repository does not carry the development history, so
 `built_from` names a commit that exists only in the development repository.

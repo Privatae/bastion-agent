@@ -10,13 +10,12 @@ import hashlib
 import json
 import os
 import shutil
-import sys
 import tempfile
 import unittest
 from unittest import mock
 
 from .manifest import validate_document
-from .walk import Excluder, Walker, _glob_to_regex, load_hash_cache, walk
+from .walk import Excluder, _glob_to_regex, load_hash_cache, walk
 
 IS_WINDOWS = os.name == "nt"
 

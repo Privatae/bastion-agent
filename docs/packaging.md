@@ -122,9 +122,12 @@ checks each edge's bytes against the manifest it serves. Where it publishes
 is not written into the script: the edges, the ssh key, the web root and the
 backup directory come from its environment, and it stops if one is missing.
 
-The manifest's `notes` link to the tag `v<version>` on the public repository,
-which marks the source of that release. `publish.sh` does not make the tag; it
-is made when that release's source is published to the public repository.
+The manifest's `notes` link to the GitHub release of the tag `v<version>`,
+which marks the source of that release and carries its files. `publish.sh`
+does not make the tag; it is made when that release's source is published to
+the public repository, and pushing it starts `.github/workflows/release.yml`,
+which rebuilds the `.pyz` from the tag and attaches it, with its `.sha256`, the
+signed manifest and its signature, once its sha256 matches the manifest.
 
 ### The legacy name
 

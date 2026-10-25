@@ -169,15 +169,25 @@ class EndToEndTests(unittest.TestCase):
                            "files": {name: {"sha256": digest or self.digest},
                                      name + ".sha256": {"sha256": "0" * 64}}}).encode()
 
-    def verify(self, body, seed=None):
+    def verify(self, body, seed=None, args=()):
         msg = vr.statement("bastion-agent", self.version, hashlib.sha256(body).hexdigest())
-        sig = base64.b64encode(_sign(seed or self.SEED, msg))
+        sig = base64.b64encode(_sign(seed or self.SEED, msg)) + b"\n"
         served = {"/version.json": body, "/" + vr.sig_name(body): sig}
+        self.served = served
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(vr, "fetch", lambda url: served[url[len("https://test"):]]), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = vr.main(["--base", "https://test"], repo=self.repo, keys=(self.pub,))
+            code = vr.main(["--base", "https://test"] + list(args), repo=self.repo, keys=(self.pub,))
         return code, out.getvalue() + err.getvalue()
+
+    def release_tag(self, built_from, annotated=True):
+        tag = "v" + self.version
+        if annotated:
+            self.run_git("tag", "-a", tag, "-m", "bastion agent %s\n\nbuilt from %s" % (self.version, built_from))
+        else:
+            self.run_git("tag", tag)
+        self.addCleanup(subprocess.run, ("git", "-C", self.repo, "tag", "-d", tag),
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def test_tag_first_then_built_from(self):
         code, out = self.verify(self.manifest("0000000"))
@@ -189,13 +199,57 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("source:    built_from", out)
         self.assertIn("matches %s" % self.digest, out)
 
-        self.run_git("tag", "v" + self.version)
-        try:
-            code, out = self.verify(self.manifest("0000000"))
-            self.assertEqual(code, 0, out)
-            self.assertIn("source:    tag v%s" % self.version, out)
-        finally:
-            self.run_git("tag", "-d", "v" + self.version)
+        self.release_tag("0000000")
+        code, out = self.verify(self.manifest("0000000"))
+        self.assertEqual(code, 0, out)
+        self.assertIn("source:    tag v%s" % self.version, out)
+
+    def test_a_tag_without_the_release_record_is_refused(self):
+        # A lightweight tag, or one recording another build, says nothing
+        # about which release it is: refused, not passed over for built_from.
+        self.release_tag("0000000", annotated=False)
+        code, out = self.verify(self.manifest(self.commit[:7]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("does not carry the release record", out)
+        self.assertNotIn("rebuild:", out)
+        self.run_git("tag", "-d", "v" + self.version)
+        self.release_tag("1111111")
+        code, out = self.verify(self.manifest(self.commit[:7]))
+        self.assertEqual(code, 1, out)
+        self.assertIn("built from %s" % self.commit[:7], out)
+
+    def test_another_version_than_expected_is_refused_before_any_checkout(self):
+        code, out = self.verify(self.manifest(self.commit[:7]), args=["--expect-version", "v9.9.9"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("names v%s, not v9.9.9" % self.version, out)
+        self.assertNotIn("source:", out)
+        code, out = self.verify(self.manifest(self.commit[:7]), args=["--expect-version", "v" + self.version])
+        self.assertEqual(code, 0, out)
+
+    def test_out_writes_what_a_release_carries(self):
+        name = "bastion-agent-%s.pyz" % self.version
+        sums = ("%s  %s\n" % (self.digest, name)).encode()
+        out_dir = os.path.join(self.tmp, "release-out")
+        self.addCleanup(shutil.rmtree, out_dir, True)
+        body = json.dumps({"version": self.version, "built_from": self.commit[:7],
+                           "files": {name: {"sha256": self.digest},
+                                     name + ".sha256": {"sha256": hashlib.sha256(sums).hexdigest()}}}).encode()
+        code, out = self.verify(body, args=["--out", out_dir])
+        self.assertEqual(code, 0, out)
+        sig = vr.sig_name(body)
+        self.assertEqual(sorted(os.listdir(out_dir)), sorted([name, name + ".sha256", "version.json", sig]))
+        with open(os.path.join(out_dir, "version.json"), "rb") as fh:
+            self.assertEqual(fh.read(), body)
+        with open(os.path.join(out_dir, sig), "rb") as fh:
+            self.assertEqual(fh.read(), self.served["/" + sig])
+        with open(os.path.join(out_dir, name), "rb") as fh:
+            self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), self.digest)
+
+    def test_out_writes_nothing_when_the_rebuild_differs(self):
+        out_dir = os.path.join(self.tmp, "release-out-bad")
+        code, out = self.verify(self.manifest(self.commit[:7], digest="1" * 64), args=["--out", out_dir])
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(out_dir))
 
     def test_a_different_build_is_reported(self):
         code, out = self.verify(self.manifest(self.commit, digest="1" * 64))

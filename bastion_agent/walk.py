@@ -25,7 +25,6 @@ import json
 import os
 import platform
 import re
-import sys
 import tempfile
 
 from .manifest import AGENT_DIR, signing_digest

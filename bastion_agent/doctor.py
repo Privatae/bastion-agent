@@ -7,11 +7,13 @@ tesseract, the gliner package) — their absence is a recorded gap in the
 stage output, not a failure here.
 """
 
+import importlib
 import json
 import os
 import platform
 import shutil
 import sys
+import urllib.error
 import urllib.request
 
 PY_FLOOR = (3, 8)
@@ -25,7 +27,6 @@ def _probe_http(url, path, timeout=5):
     """Reachable means the server answered — any HTTP status counts (a
     proxy that only permits the embed path answers 403 on '/'). Only a
     connection failure is 'not reachable'."""
-    import urllib.error
     try:
         with urllib.request.urlopen(url.rstrip("/") + path, timeout=timeout) as r:
             return True, "HTTP %d" % r.status
@@ -65,7 +66,7 @@ def checks(env=None):
         add(tool, bool(p), p or ("not on PATH — " + why), required=req, stage=stage)
 
     try:
-        import gliner  # noqa: F401
+        importlib.import_module("gliner")
         add("gliner package", True, "importable (PII_RECALL=gliner available)", required=False, stage="sanitize")
     except ImportError:
         add("gliner package", False, "not installed — sanitize sterilize on a laptop needs "

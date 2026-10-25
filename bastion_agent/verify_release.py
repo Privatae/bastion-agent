@@ -15,9 +15,15 @@ and the signature says the release key holder published it.
 
 The source is the tag v<version>. The public repository is a snapshot of the
 development one, so the commit the manifest names (built_from) exists only
-there; the tag marks the same tree in the public history. When the tag is
-absent and built_from is present (a clone of the development repository),
-built_from is used instead.
+there; the tag marks the same tree in the public history, and it counts only
+as an annotated tag whose message has the line `built from <built_from>`. When
+the tag is absent and built_from is present (a clone of the development
+repository), built_from is used instead.
+
+`--expect-version` refuses a manifest that names another version, and `--out
+DIR` writes what a release carries once everything matched: the rebuilt .pyz
+and its .sha256, the manifest's exact bytes and its signature file. The
+GitHub release workflow (.github/workflows/release.yml) runs it that way.
 
 The signature check is ed25519 in pure Python, because the standard library
 has no ed25519 and this has to run where nothing else is installed. It only
@@ -228,15 +234,33 @@ def _commit(repo, ref):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
+def tag_records(repo, tag, built_from):
+    """True when tag is an annotated tag whose message has the line
+    `built from <built_from>`, the record publishing writes on every release
+    tag. A tag without it says nothing about which release it is."""
+    if not built_from:
+        return False
+    if _git(repo, "cat-file", "-t", "refs/tags/" + tag, check=False).stdout.strip() != "tag":
+        return False
+    msg = _git(repo, "tag", "-l", "--format=%(contents)", tag, check=False).stdout
+    return ("built from " + built_from) in msg.splitlines()
+
+
 def pick_source(repo, version, built_from):
     """(label, commit) of the source to rebuild: the tag v<version>, else the
-    manifest's built_from, else VerifyError."""
+    manifest's built_from, else VerifyError. The tag counts only when it
+    records the manifest's built_from (tag_records); one that does not is
+    refused rather than passed over."""
     tag = "v" + version
     # Fetch the tag if the clone lacks it; a failure (offline, no such tag)
     # just leaves the local refs to decide.
     _git(repo, "fetch", "-q", "origin", "refs/tags/%s:refs/tags/%s" % (tag, tag), check=False)
     c = _commit(repo, "refs/tags/" + tag)
     if c:
+        if not tag_records(repo, tag, built_from):
+            raise VerifyError("the tag %s does not carry the release record (an annotated tag "
+                              "with the line 'built from %s'); nothing was built"
+                              % (tag, built_from or "(none named)"))
         return "tag " + tag, c
     if built_from:
         c = _commit(repo, built_from)
@@ -249,7 +273,8 @@ def pick_source(repo, version, built_from):
 
 
 def rebuild(repo, commit, version, work):
-    """sha256 of the .pyz that commit's own build.py produces."""
+    """sha256 of the .pyz that commit's own build.py produces. The build's
+    output stays in <work>/dist."""
     src = os.path.join(work, "src")
     _git(repo, "worktree", "add", "-q", "--detach", src, commit)
     try:
@@ -269,20 +294,52 @@ def rebuild(repo, commit, version, work):
         _git(repo, "worktree", "remove", "--force", src, check=False)
 
 
+def write_release(out, dist, version, files, body, sig):
+    """The files a release carries, into out: the rebuilt .pyz and its .sha256
+    (each checked against the manifest's digest for that name), the manifest
+    as it was served, byte for byte, and its signature under the name it is
+    served by. Called only after the signature and the rebuild both passed."""
+    os.makedirs(out, exist_ok=True)
+    for name in ("bastion-agent-%s.pyz" % version, "bastion-agent-%s.pyz.sha256" % version):
+        with open(os.path.join(dist, name), "rb") as fh:
+            data = fh.read()
+        want = (files.get(name) or {}).get("sha256")
+        if hashlib.sha256(data).hexdigest() != want:
+            raise VerifyError("the rebuilt %s does not match the manifest's sha256 for it" % name)
+        with open(os.path.join(out, name), "wb") as fh:
+            fh.write(data)
+    with open(os.path.join(out, "version.json"), "wb") as fh:
+        fh.write(body)
+    with open(os.path.join(out, sig_name(body)), "wb") as fh:
+        fh.write(sig)
+    print("release:   wrote %s" % ", ".join(sorted(os.listdir(out))))
+
+
 def main(argv=None, repo=REPO, keys=None):
     ap = argparse.ArgumentParser(prog="bastion_agent.verify_release",
                                  description="Rebuild the published agent and compare it with the release manifest.")
     ap.add_argument("--base", default=os.environ.get("MANIFEST_BASE", DEFAULT_BASE),
                     help="where version.json is served (default %s)" % DEFAULT_BASE)
+    ap.add_argument("--expect-version", metavar="VERSION",
+                    help="refuse unless the published manifest names this version (v0.1.16 or 0.1.16)")
+    ap.add_argument("--out", metavar="DIR",
+                    help="when everything matches, write the rebuilt .pyz and its .sha256, the "
+                         "manifest's exact bytes and its signature file into DIR")
     args = ap.parse_args(argv)
     base = args.base.rstrip("/")
     work = tempfile.mkdtemp(prefix="agent-verify-")
     try:
         body = fetch(base + "/version.json")
-        sig = fetch(base + "/" + sig_name(body)).decode("ascii", "replace")
+        sig_raw = fetch(base + "/" + sig_name(body))
+        sig = sig_raw.decode("ascii", "replace")
         m, key = check_signature(body, sig, keys)
         ver, built_from = m["version"], m.get("built_from") or ""
         print("published: v%s built from %s" % (ver, built_from or "(not named)"))
+        want = (args.expect_version or "").strip()
+        if want.startswith("v"):
+            want = want[1:]
+        if want and want != ver:
+            raise VerifyError("the published manifest names v%s, not v%s" % (ver, want))
         print("signature: ok (release key %d of %d, %s)"
               % (key + 1, len(RELEASE_KEYS if keys is None else keys), "primary" if key == 0 else "spare"))
         files = m.get("files") if isinstance(m.get("files"), dict) else {}
@@ -295,12 +352,16 @@ def main(argv=None, repo=REPO, keys=None):
         print("source:    %s (%s)" % (label, commit[:12]))
         got = rebuild(repo, commit, ver, work)
         bad = 0
-        for name, want in pyz.items():
-            same = got == want
+        for name, digest in pyz.items():
+            same = got == digest
             bad += not same
             print("rebuild:   %-28s %s" % (name, "matches %s" % got if same
-                                             else "DIFFERS (rebuilt %s, published %s)" % (got, want)))
-        return 1 if bad else 0
+                                             else "DIFFERS (rebuilt %s, published %s)" % (got, digest)))
+        if bad:
+            return 1
+        if args.out:
+            write_release(args.out, os.path.join(work, "dist"), ver, files, body, sig_raw)
+        return 0
     except VerifyError as exc:
         print("verify: %s" % exc, file=sys.stderr)
         return 1

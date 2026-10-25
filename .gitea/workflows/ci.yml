@@ -17,6 +17,8 @@ env:
   PY_CURRENT: python@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b  # 3.13-slim
   # The PyYAML release bastion_agent/build.py vendors; the manifest loader imports it.
   PYYAML: pyyaml==6.0.3
+  # The linter: every name a module imports is used, and none is undefined.
+  PYFLAKES: pyflakes==4.0.3
   # The pull request's own head, or the pushed commit.
   WANT: ${{ gitea.event.pull_request.head.sha || gitea.sha }}
 
@@ -36,17 +38,27 @@ jobs:
         run: |
           docker run --rm -v "$PWD":/src:ro -w /src "$PY_CURRENT" \
             python -m unittest -v test_syntax_floor
+      - name: pyflakes
+        run: |
+          docker run --rm -v "$PWD":/src:ro -w /src -e PYFLAKES "$PY_CURRENT" sh -euc '
+            pip install -q --disable-pip-version-check --root-user-action=ignore "$PYFLAKES"
+            python -m pyflakes bastion_agent pii scripts test_syntax_floor.py'
       - name: every test, on Python 3.8 and on a current Python
-        # age is installed so the seal round trips run instead of skipping.
+        # age is installed so the seal round trips run, and git so the release
+        # verifier's end-to-end tests do. Every test runs here: a skipped one
+        # fails the job (the only skips the suite has are for Windows, or for a
+        # tool missing, and this job installs the tools).
         run: |
           set -euo pipefail
           for img in "$PY_FLOOR" "$PY_CURRENT"; do
             docker run --rm -v "$PWD":/src:ro -w /src -e PYYAML "$img" sh -euc '
               python --version
               apt-get -qq update >/dev/null
-              apt-get -qq install -y --no-install-recommends age >/dev/null
+              apt-get -qq install -y --no-install-recommends age git >/dev/null
               pip install -q --disable-pip-version-check --root-user-action=ignore "$PYYAML"
-              python -m unittest discover .'
+              python -m unittest discover -v . > /tmp/tests.log 2>&1 || { cat /tmp/tests.log; exit 1; }
+              grep -E "^(Ran|OK|FAILED)" /tmp/tests.log
+              if grep -E "\.\.\. skipped|^(OK|FAILED) \(.*skipped=" /tmp/tests.log; then echo "a test was skipped; CI runs every test"; exit 1; fi'
           done
 
   personal-data:

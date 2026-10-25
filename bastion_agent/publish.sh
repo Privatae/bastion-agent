@@ -192,7 +192,7 @@ installers = {n: {"url": "%s/%s" % (base_new, n), "sha256": h(os.path.join(pkg, 
               for n in ("install.sh", "install.ps1")}
 json.dump({"version": ver, "built_from": sha, "python_floor": "3.8",
            "files": files, "installers": installers,
-           "notes": "https://git.privatae.ai/privatae/bastion-agent/releases/tag/v%s" % ver},
+           "notes": "https://github.com/Privatae/bastion-agent/releases/tag/v%s" % ver},
           sys.stdout, indent=2)
 PY
 

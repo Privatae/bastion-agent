@@ -22,7 +22,6 @@ from . import run as rn
 from . import serve as sv
 from .catalog import catalog
 from .extract import extract
-from .manifest import validate_document
 from .sanitize import sanitize
 from .test_embed import _Stub as EmbedStub  # deterministic bag-of-words embedder
 from .walk import walk
@@ -112,12 +111,12 @@ class ServeTests(unittest.TestCase):
         shutil.rmtree(cls.work, ignore_errors=True)
 
     @classmethod
-    def write_manifest(cls, grants):
+    def write_manifest(cls, grants, mode="flag"):
         import yaml
         doc = {"freeagent": 1, "id": "t", "owner": {"host": "owner-host"},
                "scope": {"roots": [cls.root]}, "mask": ["read", "search", "index"],
                "stages": ["walk", "extract", "sanitize", "chunk", "embed", "catalog", "seal"],
-               "sanitize": {"mode": "flag"},
+               "sanitize": {"mode": mode},
                "embed": {"model": "stub-model", "dim": 64, "chunk": {"size_tokens": 8, "overlap_tokens": 2}},
                "sweep": "manual",
                "sink": {"catalog": "host", "vectors": "local", "plaintext": "never"},
@@ -238,6 +237,93 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(self.call("owner", "POST", "/search", {"query": ""})[0], 400)
         self.assertEqual(self.call("owner", "POST", "/nope", {})[0], 404)
 
+    GRANTS = [{"host": "partner-host", "ops": ["search"], "until": "2026-12-31"},
+              {"host": "old-host", "ops": ["search", "read_range"], "until": "2026-01-01"}]
+
+    def modes(self):
+        """(owner search, owner read_range, partner search) sanitize_mode for the apples doc."""
+        st, body = self.call("owner", "POST", "/search", {"query": "apples", "k": 1})
+        self.assertEqual(st, 200)
+        doc = body["hits"][0]["doc"]
+        st, rr = self.call("owner", "POST", "/read_range", {"doc": doc, "start": 0, "end": 10})
+        self.assertEqual(st, 200)
+        st, pb = self.call("partner", "POST", "/search", {"query": "apples", "k": 1})
+        self.assertEqual(st, 200)
+        return doc, (body["sanitize_mode"], rr["sanitize_mode"], pb["sanitize_mode"])
+
+    def rewrite_index(self, fn):
+        """Rewrite sanitize.jsonl through fn(record); returns the original bytes."""
+        path = os.path.join(self.out, "sanitize.jsonl")
+        with open(path, "rb") as fh:
+            orig = fh.read()
+        recs = [fn(json.loads(l)) for l in orig.decode("utf-8").splitlines() if l.strip()]
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r, sort_keys=True) + "\n" for r in recs))
+        return orig
+
+    def restore_index(self, orig):
+        with open(os.path.join(self.out, "sanitize.jsonl"), "wb") as fh:
+            fh.write(orig)
+
+    def test_a_reply_names_the_mode_that_wrote_its_text_not_the_manifests(self):
+        # The store was swept in flag mode. Switching the manifest to
+        # sterilize changes what the NEXT sweep does, not the text already
+        # served: until a sweep rewrites it, every reply still says flag, so
+        # the bastion never calls flag-mode text sanitized.
+        try:
+            for mode in ("flag", "sterilize", "flag"):
+                self.write_manifest(grants=self.GRANTS, mode=mode)
+                self.assertEqual(self.modes()[1], ("flag", "flag", "flag"), mode)
+        finally:
+            self.write_manifest(grants=self.GRANTS)
+
+    def test_a_store_the_sanitize_stage_wrote_in_sterilize_mode_is_named_sterilize(self):
+        orig = self.rewrite_index(lambda r: dict(r, mode="sterilize"))
+        try:
+            self.write_manifest(grants=self.GRANTS, mode="sterilize")
+            self.assertEqual(self.modes()[1], ("sterilize", "sterilize", "sterilize"))
+        finally:
+            self.restore_index(orig)
+            self.write_manifest(grants=self.GRANTS)
+
+    def test_text_the_sanitize_record_does_not_vouch_for_is_unknown(self):
+        doc, modes = self.modes()
+        self.assertEqual(modes, ("flag", "flag", "flag"))
+        spath = sv.sanitized_store_path(self.out, doc)
+        st = os.stat(spath)
+        index = os.path.join(self.out, "sanitize.jsonl")
+        # a sweep still running has rewritten the file after the index
+        later = os.stat(index).st_mtime_ns + 10 ** 9
+        os.utime(spath, ns=(later, later))
+        try:
+            self.assertEqual(self.modes()[1], ("unknown", "unknown", "unknown"))
+        finally:
+            os.utime(spath, ns=(st.st_atime_ns, st.st_mtime_ns))
+        # the chunks a search reads were cut from text the store no longer holds
+        with open(spath, encoding="utf-8") as fh:
+            text = fh.read()
+        with open(spath, "w", encoding="utf-8") as fh:
+            fh.write("X" * len(text))
+        os.utime(spath, ns=(st.st_atime_ns, st.st_mtime_ns))
+        try:
+            got = self.modes()[1]
+            self.assertEqual((got[0], got[2]), ("unknown", "unknown"))
+        finally:
+            with open(spath, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            os.utime(spath, ns=(st.st_atime_ns, st.st_mtime_ns))
+        # the last run did not write it (stopped: not_run), so the file is an older run's
+        orig = self.rewrite_index(lambda r: dict(r, status="not_run") if r.get("sha256") == doc else r)
+        try:
+            self.assertEqual(self.modes()[1], ("unknown", "unknown", "unknown"))
+        finally:
+            self.restore_index(orig)
+        self.assertEqual(self.modes()[1], ("flag", "flag", "flag"))
+
+    def test_sanitize_mode_of_a_manifest_without_the_stage_is_none(self):
+        self.assertEqual(sv.sanitize_mode(None), "none")
+        self.assertEqual(sv.sanitize_mode(type("M", (), {"sanitize": None})()), "none")
+
     def test_silent_tcp_connection_does_not_stall_other_clients(self):
         # with the handshake on the accept loop one idle raw TCP
         # connection blocked every client; now the handshake runs in the
@@ -333,7 +419,7 @@ class UnitTests(unittest.TestCase):
     def test_parse_bind(self):
         self.assertEqual(sv.parse_bind("[::]:8470"), ("::", 8470))
         self.assertEqual(sv.parse_bind("10.0.0.5:9"), ("10.0.0.5", 9))
-        self.assertEqual(sv.parse_bind("[fd00:1::31]:8470"), ("fd00:1::31", 8470))
+        self.assertEqual(sv.parse_bind("[2001:db8::31]:8470"), ("2001:db8::31", 8470))
         with self.assertRaises(sv.ServeError):
             sv.parse_bind("nope")
 

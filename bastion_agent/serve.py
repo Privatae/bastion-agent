@@ -17,6 +17,12 @@ Ops (JSON over HTTPS):
   POST /read_range  {doc, start, end}     read_range (owner, grantee w/ op)
                                           from the SANITIZED store only,
                                           <= READ_RANGE_MAX bytes
+  Both answer with `sanitize_mode`, the mode the sanitize stage recorded for
+  the text in the reply ("flag" or "sterilize"; the weakest across a
+  search's hits; "unknown" when the record does not vouch for that text; a
+  search with no hits names the manifest's mode, or "none"), so a caller can
+  say what the text has had done to it: in flag mode names, street addresses
+  and dates of birth remain.
   GET  /catalog[?prefix=&offset=&limit=]  owner only: the file cards (paged)
   GET  /catalog/dirs[?...]                owner only: the directory cards (paged)
   GET  /status                            owner only: run.state.json
@@ -63,6 +69,83 @@ OWNER_OPS = ("search", "read_range", "catalog", "status")
 
 class ServeError(Exception):
     pass
+
+
+def sanitize_mode(manifest):
+    """The sanitize mode the manifest sets: "flag", "sterilize", or "none" when
+    it names no sanitize stage. A reply with no text in it (a search with no
+    hits) carries this; a reply with text carries served_mode."""
+    s = getattr(manifest, "sanitize", None)
+    return getattr(s, "mode", None) or "none"
+
+
+# Weakest first: a reply that mixes texts names the weakest mode among them.
+_MODE_RANK = {"unknown": 0, "flag": 1, "sterilize": 2}
+_index_lock = threading.Lock()
+_index_cache = {}  # sanitize.jsonl path -> ((ino, mtime_ns, size), {doc: mode})
+
+
+def _sanitize_index(out_dir):
+    """({doc sha: mode} for every document the last sanitize run wrote with
+    status ok, the index's mtime_ns), from <out>/sanitize.jsonl; ({}, None)
+    when there is none. Re-read only when the file changes."""
+    path = os.path.join(out_dir, "sanitize.jsonl")
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}, None
+    sig = (st.st_ino, st.st_mtime_ns, st.st_size)
+    with _index_lock:
+        hit = _index_cache.get(path)
+        if hit and hit[0] == sig:
+            return hit[1], st.st_mtime_ns
+        modes = {}
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(rec, dict) and rec.get("status") == "ok" and rec.get("sha256"):
+                        modes[rec["sha256"]] = rec.get("mode")
+        except OSError:
+            return {}, None
+        _index_cache[path] = (sig, modes)
+        return modes, st.st_mtime_ns
+
+
+def served_mode(out_dir, doc, start=None, text=None):
+    """The sanitize mode that wrote the text served for doc, as the sanitize
+    stage recorded it, or "unknown" when that record does not vouch for the
+    text. The manifest's mode says what the NEXT sweep will do; the store can
+    still hold an earlier sweep's text (the manifest switched to sterilize and
+    the sweep has not run, or stopped; a sweep is rewriting the store now; the
+    chunks a search reads were cut before the latest sanitize run).
+
+    Unknown when: no status-ok record for doc, the file is newer than the
+    index (a run that has not finished rewrote it), or, for a search hit,
+    `text` at `start` is not what the store holds now."""
+    modes, index_mtime = _sanitize_index(out_dir)
+    mode = modes.get(doc)
+    if mode not in ("flag", "sterilize"):
+        return "unknown"
+    path = sanitized_store_path(out_dir, doc)
+    try:
+        if os.stat(path).st_mtime_ns > index_mtime:
+            return "unknown"
+        if text is not None:
+            with open(path, encoding="utf-8") as fh:
+                stored = fh.read()
+            if stored[start:start + len(text)] != text:
+                return "unknown"
+    except (OSError, TypeError, ValueError):
+        return "unknown"
+    return mode
+
+
+def _weakest(modes):
+    return min(modes, key=lambda m: _MODE_RANK.get(m, 0))
 
 
 def parse_bind(bind):
@@ -312,7 +395,13 @@ class Handler(BaseHTTPRequestHandler):
             except (_embed.EmbedError, OSError) as e:
                 self._send(502, {"error": "search unavailable: %s" % e}, cn, "search", {"q": qhash})
                 return
-            self._send(200, {"hits": hits, "k": k}, cn, "search", {"q": qhash, "hits": len(hits)})
+            if hits:
+                mode = _weakest([served_mode(self.out_dir, h.get("doc"), h.get("start"), h.get("text"))
+                                 for h in hits])
+            else:
+                mode = sanitize_mode(self.policy.manifest)
+            self._send(200, {"hits": hits, "k": k, "sanitize_mode": mode},
+                       cn, "search", {"q": qhash, "hits": len(hits)})
             return
         if self.path == "/read_range":
             cn, denied = self._authorize("read_range")
@@ -340,7 +429,8 @@ class Handler(BaseHTTPRequestHandler):
                 text = fh.read()
             piece = text[start:end]
             self._send(200, {"doc": doc, "start": start, "end": start + len(piece),
-                             "total": len(text), "text": piece},
+                             "total": len(text), "text": piece,
+                             "sanitize_mode": served_mode(self.out_dir, doc)},
                        cn, "read_range", {"doc": doc[:12], "chars": len(piece)})
             return
         self._send(404, {"error": "not found"}, self._cn(), None)

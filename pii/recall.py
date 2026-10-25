@@ -22,7 +22,7 @@ downgrade the sensor. Stdlib-only here; the gliner package is the one
 optional third-party import in the module and it is loaded lazily.
 """
 
-from typing import Callable, List, Tuple
+from typing import List, Tuple
 
 from . import llmclient
 from .detect import PII_TYPES

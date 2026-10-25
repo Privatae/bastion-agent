@@ -175,7 +175,7 @@ class RoundTripTests(Case):
     def test_tampered_member_refused(self):
         ident, pub = keygen(self.out)
         env = {"FREEAGENT_OWNER_RECIPIENT": pub}
-        s = sl.seal(manifest(self.root), self.out, env=env)
+        sl.seal(manifest(self.root), self.out, env=env)
         # rebuild a bundle with a modified catalog but the old inventory, seal it, and unseal
         plain, _ = sl.build_bundle(manifest(self.root), self.out, "x")
         buf = io.BytesIO()
