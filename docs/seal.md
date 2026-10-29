@@ -1,8 +1,10 @@
-# bastion agent `seal` stage: the catalog leaves, nothing else does
+# bastion agent `seal` stage: the catalog in one encrypted bundle
 
-`seal` is the last stage of a run and the one way a dataset leaves the machine:
-an allowlisted bundle of the catalog, encrypted with age to the owner and the
-manifest's named recipients. It is `bastion_agent/seal.py`.
+`seal` is the last stage of a run: it packs an allowlisted bundle of the
+catalog into one file, encrypted with age to the owner and the manifest's named
+recipients. It writes the bundle into the output folder and sends it nowhere.
+`serve` answers queries with cards and excerpts, unsealed
+([serve.md](serve.md)). It is `bastion_agent/seal.py`.
 
 ## What it does
 
@@ -58,8 +60,8 @@ plaintext.
 age (X25519 and ChaCha20-Poly1305) is a small, widely reviewed format with a
 single static binary for Mac, Windows and Linux. The envelope cannot be made
 with the standard library (it has no X25519 and no ChaCha20-Poly1305), so,
-unlike the extract stage's optional tools, **age is required here**: a catalog
-that cannot be sealed does not leave, and the stage says so and exits 1.
+unlike the extract stage's optional tools, **age is required here**: without
+it no bundle is written at all, and the stage says so and exits 1.
 
 ## Signature (optional)
 

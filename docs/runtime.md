@@ -53,8 +53,16 @@ scope** (a PDF or DOCX becomes a flat `.txt`), and the sanitized store is that
 text with personal data tokenized (only the rules-pass anchors, unless the
 manifest uses `sterilize`). That is the same trust boundary as the folder
 itself, since the source files are already there, but a sync provider now
-receives a second, flattened, indexable copy. If that matters for a folder,
-exclude `.agent` from sync or keep the output elsewhere (`--out`).
+receives a second, flattened, indexable copy, and a host whose folder grant
+has `read` can read the extract store as it is: the bastion's listing and raw
+reads cover `.agent/` like any other folder the grant does not exclude. If that
+matters for a folder, exclude `.agent` from sync; add `.agent` to the paths the
+grant excludes, and the bastion then leaves it out of a host's listings and
+refuses reads of it; or, for an agent run by hand, keep the output elsewhere
+(`--out`). The bastion keeps its agent in `<root>/.agent/` too, except on
+Windows when the bastion runs as the system service, or when it cannot create
+`.agent` in the folder (a read-only folder, for one); it then keeps it in its
+own state directory.
 
 The identity key is never in `.agent/`: it is wherever `FREEAGENT_TLS_KEY`
 points. The PII vault (plaintext values) is in `.agent/sanitize/vault.db` for

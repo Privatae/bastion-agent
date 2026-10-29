@@ -539,9 +539,10 @@ def validate_document(doc, require_signed=False):
             errors.append("summarize: requires the 'catalog' stage (summaries live in the catalog)")
     if stages is not None:
         if sink is not None and sink.catalog == "host" and "seal" not in stages:
-            errors.append("sink: catalog 'host' requires the 'seal' stage — nothing leaves unsealed")
+            errors.append("sink: catalog 'host' requires the 'seal' stage — the copy meant for the host "
+                          "is the sealed bundle")
         if grants and "seal" not in stages:
-            errors.append("grants: any grant requires the 'seal' stage — nothing is served unsealed")
+            errors.append("grants: any grant requires the 'seal' stage")
         if sink is not None and sink.seal_to and "seal" not in stages:
             errors.append("sink: seal_to given but 'seal' is not in stages")
 

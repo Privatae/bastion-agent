@@ -1,6 +1,6 @@
 """bastion agent `catalog` stage — the curated dataset.
 
-The catalog is what a host reasons over and what `seal` ships. One card
+The catalog is what a host reasons over and what `seal` packs. One card
 per file, one per directory, small and structured, built from:
 
     walk.jsonl          metadata (path, size, mtime, mime, hash)
@@ -22,9 +22,10 @@ masked as [PII_TYPE] in the card. Contextual PII in a filename
 ("Marisol_medical.pdf") is not caught by rules — the honest limit of the
 sanitize stage applies here too, and the doc says so.
 
-The optional summarizer (manifest `summarize`) is a local chat model — a
-sensor: it fills the `summary` string and nothing else, is reached via
-SUMMARIZE_URL (never the manifest), sees only sanitized text, and is
+The optional summarizer (manifest `summarize`) is a chat model at the
+server SUMMARIZE_URL names (never the manifest; by default the Ollama port
+on this machine, 127.0.0.1:11434) — a sensor: it fills the `summary`
+string and nothing else, is sent only sanitized text, and is
 cached per (document, model, version). The first failure stops
 summarizing (cards still get written, `summary_error` set, exit 1).
 """
@@ -151,7 +152,7 @@ def mask_name(name, detect):
 def mask_path(path, detect):
     """Every component of a relative path through mask_name — a parent
     directory can carry an address as easily as a filename, and the file
-    card's path is what seal ships. Returns (masked
+    card's path is what serve returns and seal packs. Returns (masked
     path, number of components changed)."""
     if not path:
         return path, 0

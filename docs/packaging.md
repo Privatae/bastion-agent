@@ -111,7 +111,7 @@ run there, and the second, with `SIGNATURE=<the line it printed>` and
 `BASTION_TREE` pointing at a privatae-bastion checkout, checks the signature
 against the keys that checkout pins and the keys the published bastion pins,
 and only then publishes. What is signed is a short statement naming the kind
-of release, its version and the manifest's sha256. A bastion from 0.41.0 on
+of release, its version and the manifest's sha256. A bastion from 0.42.0 on
 fetches `version.json.<h>.sig`, refuses a manifest that does not verify, and
 never replaces an installed agent with an older version.
 
@@ -180,7 +180,10 @@ answering `--version` and `doctor --json` and validating the example manifest;
 heads; the `.agent` default output directory; and the doctor's checks against
 unreachable and missing inputs.
 
-This repository has no CI. [CONTRIBUTING.md](../CONTRIBUTING.md) lists the
+Every push to `main` and every pull request into it runs CI
+(`.gitea/workflows/ci.yml`, `.github/workflows/ci.yml`): the 3.8 floor,
+pyflakes, every test on Python 3.8 and a current Python, a personal-data scan
+and a reproducibility check. [CONTRIBUTING.md](../CONTRIBUTING.md) lists the
 checks to run before proposing a change, and `publish.sh` builds the release
 and runs it before anything is uploaded. The installers are not exercised by
 the test suite.

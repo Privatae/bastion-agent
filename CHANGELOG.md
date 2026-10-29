@@ -14,6 +14,48 @@ Changes to the release tooling (`publish.sh`, `build.py`, `verify_release.py`)
 and to the documentation are listed under the version whose source first
 carried them, although they do not change what the `.pyz` does.
 
+## 0.1.17
+
+- **Messages no longer claim what the code does not do.** A manifest with
+  `sink.catalog: host` and no `seal` stage is refused with "the copy meant
+  for the host is the sealed bundle", and one with a grant and no `seal`
+  stage with "any grant requires the 'seal' stage"; neither says that
+  nothing leaves or is served unsealed, since `serve`'s replies are never
+  sealed. A malformed `doc` in `read_range` is refused as "the original
+  file's sha256", which is what the id is. What the manifest accepts and
+  refuses is unchanged.
+- **The documentation says what reaches a Host.** What the agent
+  returns (catalog cards, search hits, excerpts by document id) comes from
+  the sanitized text, and the agent sends no file or extracted text to a
+  Host. A folder grant with `read`, the default, also lets the Host ask the
+  bastion itself for the folder's file names, sizes and times and for raw
+  ranges of its files, up to 512 KiB per read, including `.agent/` and the
+  plaintext extract store in it wherever the bastion keeps the agent inside
+  the folder; adding `.agent` to the grant's excluded paths stops that.
+  `seal` writes its bundle and sends it nowhere. A file card's `sha256` is
+  the original file's hash.
+- **`flag` mode's limits are listed.** It does not look for bank account
+  numbers other than IBANs and US routing numbers after a word such as
+  "routing", crypto addresses other than Bitcoin addresses that start with
+  1 or 3, or ID numbers such as passport numbers.
+- **Every model server is the one the environment names.** `EMBED_URL` and
+  `SUMMARIZE_URL` default to the Ollama port on the same machine, and the
+  bastion sets `EMBED_URL` to `127.0.0.1:11434`. `sterilize` mode sends the
+  unsanitized text to the PII service at `PII_ADDR` when that is set;
+  otherwise to the server at `LLM_URL`, unless `PII_RECALL=gliner` runs the
+  model inside the agent.
+- **Smaller corrections.** The `doc` id is the original file's sha256
+  (embed.md); CI runs on every push and pull request (packaging.md); signed
+  manifests are checked from bastion 0.42.0, since 0.41.0 was never
+  published; the bastion installs Privatae's signed build, which anyone can
+  rebuild from this source.
+
+- **Tests look for the whole test card number.** Four tests checked that
+  the four digits `4111` never appear in a sealed bundle, an index or a
+  catalog. Those also hold sha256 hex and times, where the same four digits
+  turn up by chance: CI failed on a seal manifest hash ending `...81934111`.
+  They now look for the full card value, spaced and unspaced.
+
 ## 0.1.16
 
 - **Every `search` and `read_range` reply names its sanitize mode**

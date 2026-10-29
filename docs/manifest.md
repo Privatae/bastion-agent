@@ -19,19 +19,21 @@ the control flow and every change, and a model proposes, never acts.
 The owner's host writes a **job manifest**, and it is signed (by the bastion,
 in the managed install). The agent executes exactly that manifest and nothing
 else. The output is a **catalog** (small, structured cards per file and per
-directory) plus local vectors. The files themselves never move; a host
-reasons over them by querying the agent. Sharing is a grant that lets another
-host query this catalog: access moves, data does not.
+directory) plus local vectors. The agent never sends the files themselves; a
+host reasons over them by querying the agent. Sharing is a grant that lets
+another host search the sanitized text or read ranges of it, until a set date
+([`grants`](#grants)).
 
 ## Rules the schema enforces
 
-1. **Plaintext never leaves.** `sink.plaintext` is the constant `never`. Any
+1. **No plaintext sink.** `sink.plaintext` is the constant `never`. Any
    other value is a validation error, not a setting.
 2. **Nothing runs that was not granted.** `mask` is the ceiling; every stage
    must be covered by an op in the mask, or the manifest is refused before it
    runs.
-3. **Nothing leaves unsealed.** A catalog sent to the host, `seal_to`
-   recipients, or any grant requires the `seal` stage.
+3. **Sharing needs `seal`.** `sink.catalog: host`, `seal_to` recipients, or
+   any grant requires the `seal` stage. What `serve` returns, to the owner or
+   to a grantee, is never sealed.
 4. **No addresses.** The sanitizer and the embedder are found from the
    machine's environment when the agent runs. The manifest never carries a
    host:port.
@@ -179,11 +181,14 @@ Present **if and only if** `embed` is in `stages`.
 | Field | Required | Rules |
 |---|---|---|
 | `model` | yes | Model name, 1–128 characters. |
-| `dim` | yes | Integer 1–8192. The stage refuses to run if the local endpoint's vectors have another dimension. Vectors are stored per model, so a later model change never discards existing vectors. |
+| `dim` | yes | Integer 1–8192. The stage refuses to write if the embedding server (`EMBED_URL`) returns vectors of another dimension. Vectors are stored per model, so a later model change never discards existing vectors. |
 | `chunk.size_tokens` | yes | Integer 1–8192. |
 | `chunk.overlap_tokens` | yes | Integer, 0 ≤ overlap < size. |
 
-There is no endpoint field. Embedding is local, always.
+There is no endpoint field: the embedder is the server `EMBED_URL` names in
+the agent's environment, by default the Ollama port on the same machine. The
+bastion sets it to `127.0.0.1:11434`; an agent run by hand can be pointed
+anywhere.
 
 ### `summarize`
 
@@ -191,7 +196,7 @@ Optional. Requires `summarize` in `mask` and `catalog` in `stages`.
 
 | Field | Required | Rules |
 |---|---|---|
-| `model` | yes | Local model name, 1–128 characters. |
+| `model` | yes | Model name, 1–128 characters, at the server `SUMMARIZE_URL` names. |
 | `per` | yes | Non-empty subset of `file`, `directory`. |
 
 ### `sweep`
@@ -202,7 +207,7 @@ One of `15m`, `hourly`, `daily`, `manual`.
 
 | Field | Required | Rules |
 |---|---|---|
-| `catalog` | yes | `local`: the sealed catalog stays here, and the host queries it. `host`: the sealed catalog is sent to the owner's host, so it can plan while this machine is asleep. Requires the `seal` stage. |
+| `catalog` | yes | `local`: the catalog stays here, and the host queries it through `serve`. `host`: the sealed catalog is meant for the owner's host. The agent writes it to `<out>/sealed/` and neither the agent nor the bastion sends it. When `<out>` is inside the folder (the default, `<root>/.agent/`), a host whose folder grant has `read` can fetch it like any other file. Requires the `seal` stage. |
 | `vectors` | yes | `local`, the only value. |
 | `plaintext` | yes | `never`, the only value, ever. It is there so the rule is written down in every manifest and can be searched for, not remembered. |
 | `seal_to` | no | List of recipient keys, 1–128 characters each, no duplicates. Requires the `seal` stage. The owner's key is always added by the agent and need not be listed. |

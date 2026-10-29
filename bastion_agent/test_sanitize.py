@@ -104,7 +104,8 @@ class FlagModeTests(Case):
         s, idx = self.run_stage(manifest(self.root, "flag"))
         out = self.text_of(idx["note.txt"])
         self.assertNotIn("m@example.com", out)
-        self.assertNotIn("4111", out)
+        for card in ("4111 1111 1111 1111", "4111111111111111"):
+            self.assertNotIn(card, out)
         self.assertIn("Marisol", out)  # contextual PII is NOT caught by flag mode
         self.assertIn("[PII_EMAIL_1]", out)
         self.assertIn("[PII_CREDIT_CARD_1]", out)
@@ -121,7 +122,9 @@ class FlagModeTests(Case):
         s, idx = self.run_stage(manifest(self.root, "flag"))
         blob = json.dumps(idx) + json.dumps(s)
         self.assertNotIn("m@example.com", blob)
-        self.assertNotIn("4111", blob)
+        # the whole card: four digits alone also turn up inside hashes and times
+        for card in ("4111 1111 1111 1111", "4111111111111111"):
+            self.assertNotIn(card, blob)
 
     @unittest.skipIf(IS_WINDOWS, "POSIX permission bits")
     def test_vault_is_private(self):

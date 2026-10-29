@@ -12,8 +12,10 @@ reads the extract index and store and writes:
 
 - **`sanitize/<aa>/<sha256>.txt`**: the sanitized text store. Personal data is
   replaced by stable `[PII_TYPE_n]` tokens. **From this stage on, later
-  stages read only this store.** The extract store keeps the plaintext and
-  never leaves the machine.
+  stages read only this store.** The extract store keeps the plaintext; the
+  agent never serves it, but while it is in the folder (the default), a
+  folder grant with `read` reaches it through the bastion
+  ([runtime.md](runtime.md#where-an-agent-lives-rootagent)).
 - **`vault.db`**: the token-to-value map (in-process mode only), created 0600
   under umask 077. It is the only way back from a token to a value, and it
   stays on the machine. It is `<out>/sanitize/vault.db`, or
@@ -50,10 +52,14 @@ stages, there is no extract index, or the stage **stopped**; `2` completed with
   employers, medical facts) is found by the recall pass.
 - **`flag`**: the rules pass **only**: deterministic, no model, milliseconds.
   It replaces the anchors a pattern can find: e-mail addresses, phone
-  numbers, SSNs, cards, IBANs, routing numbers, crypto addresses, IP and MAC
-  addresses, API keys, private-key blocks, JWTs. It can also replace an
-  ordinary number that looks like a phone or ID number. **It does not find names,
-  street addresses, dates of birth**, or anything else that takes reading for
+  numbers, SSNs, cards, IBANs, US routing numbers after a cue word, legacy and
+  P2SH Bitcoin addresses, IP and MAC addresses, API keys, private-key blocks,
+  JWTs ([the list](pii-sterilization.md#the-rules-pass-piidetectpy)). Other
+  bank account numbers, other crypto addresses (`bc1…`, Ethereum) and ID
+  numbers such as passport numbers are not found. It can also replace an
+  ordinary number that looks like a phone, card or social security number.
+  **It does not find names, street addresses, dates of birth**, or anything
+  else that takes reading for
   meaning (an employer, a school, a medical fact). It is the mode the bastion
   writes into every manifest it deploys. A flag-mode catalog is not free of
   personal data, and the manifest doc says so too.

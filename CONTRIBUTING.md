@@ -43,11 +43,17 @@ refuses adds a test that it refuses.
 
 ## What a change has to respect
 
-- **Bytes never leave the machine.** The files, their extracted text and the
-  vault stay local. What leaves is the sealed catalog, to the recipients the
-  manifest names, and what `serve` returns to a certificate the manifest
-  allows. There is no plaintext sink: `sink.plaintext` is `never` and has no
-  other value.
+- **The agent sends no file and no extracted text to a Host.** It keeps the
+  files, their extracted text and the vault on the machine. The one exception
+  is `sterilize` mode with a server: the PII service at `PII_ADDR`, or the
+  recall model at `LLM_URL`, is sent the extracted text, and the PII service
+  keeps its own vault ([docs/sanitize.md](docs/sanitize.md#where-the-sterilizer-runs)).
+  What the agent makes for others is the sealed catalog, for the recipients
+  the manifest names, and what `serve` returns to a certificate the manifest
+  allows. There is no plaintext sink:
+  `sink.plaintext` is `never` and has no other value. (The bastion's own
+  `read` op is separate: it returns ranges of any file in the granted folder
+  that the grant does not exclude, as they are on disk, `.agent/` included.)
 - **Sanitize before anything is written for later stages.** Chunks, vectors,
   keywords, titles, summaries, the catalog and everything `serve` returns come
   from the sanitized store, never the extract store. A test that searches an

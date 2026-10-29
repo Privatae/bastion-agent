@@ -189,7 +189,8 @@ class StageTests(Case):
     def test_catalog_carries_no_values(self):
         _, files, dirs = self.run_stage(manifest(self.root))
         blob = json.dumps(files) + json.dumps(dirs)
-        for leak in ("m@example.com", "4111"):
+        # the whole card: four digits alone also turn up inside hashes and times
+        for leak in ("m@example.com", "4111 1111 1111 1111", "4111111111111111"):
             self.assertNotIn(leak, blob)
 
     def test_summaries_file_and_directory_with_cache(self):
@@ -205,7 +206,8 @@ class StageTests(Case):
         # the model only ever saw sanitized text
         for _, _, prompt in _StubChat.calls:
             self.assertNotIn("m@example.com", prompt)
-            self.assertNotIn("4111", prompt)
+            for card in ("4111 1111 1111 1111", "4111111111111111"):
+                self.assertNotIn(card, prompt)
         # second run: all summaries from cache, no calls
         _StubChat.calls = []
         s2, _, _ = self.run_stage(m)

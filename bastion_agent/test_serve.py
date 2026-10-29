@@ -233,7 +233,10 @@ class ServeTests(unittest.TestCase):
             self.assertIn("m@example.com", fh.read())  # the plaintext exists on disk; it has no route
         st, _ = self.call("owner", "POST", "/read_range", {"doc": "0" * 64, "start": 0, "end": 10})
         self.assertEqual(st, 404)
-        self.assertEqual(self.call("owner", "POST", "/read_range", {"doc": "zz", "start": 0, "end": 1})[0], 400)
+        st, body = self.call("owner", "POST", "/read_range", {"doc": "zz", "start": 0, "end": 1})
+        self.assertEqual(st, 400)
+        # the id is the original file's hash (the extract and sanitized stores share it)
+        self.assertIn("original file's sha256", body["error"])
         self.assertEqual(self.call("owner", "POST", "/search", {"query": ""})[0], 400)
         self.assertEqual(self.call("owner", "POST", "/nope", {})[0], 404)
 

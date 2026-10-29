@@ -25,8 +25,10 @@ the stage refuses otherwise) and writes:
   recorded, which ties the walk map and the text store to one manifest.
 
 `DIR` defaults as for the walk (`<root>/.agent/` for one root). This text
-store is the plaintext of every file in scope, and it never leaves the machine;
-see [runtime.md](runtime.md#where-an-agent-lives-rootagent).
+store is the plaintext of every file in scope. The agent never serves it, but
+by default it sits in the folder: if the folder is synced, the sync provider
+gets a copy, and a host whose folder grant has `read` can read it through the
+bastion like any other file; see [runtime.md](runtime.md#where-an-agent-lives-rootagent).
 
 | `status` | Meaning |
 |---|---|

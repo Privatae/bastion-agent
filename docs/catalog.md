@@ -57,7 +57,12 @@ MIME types), `keywords` (the top 12 over the merged term counts), `entities`
   hyphens, so `invoice-m@example.com.pdf` becomes `[PII_EMAIL]`; `mime` and
   `size` still say what it was. The summary counts masked segments as
   `names_masked`. **A name like `Marisol_medical.pdf` is not caught**: that is
-  contextual personal data, the same limit as the rules-only `flag` mode.
+  contextual personal data, the same limit as the rules-only `flag` mode. The
+  mask is the catalog's: the bastion's own listing, for a grant with `read`,
+  returns names as they are.
+- **Not hidden: content hashes.** Each file card's `sha256`, also the `doc` id in
+  search hits and excerpts, is the hash of the original file, so whoever holds
+  a copy of a file can confirm it is in the folder.
 
 ## The summarizer (a sensor)
 

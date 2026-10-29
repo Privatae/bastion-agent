@@ -112,9 +112,12 @@ class FailClosedTests(Case):
         for forbidden in ("walk.jsonl", "extract.jsonl", "sanitize.jsonl", "vectors.db", "vault.db"):
             self.assertFalse(any(n.endswith(forbidden) for n in names), forbidden)
         self.assertFalse(any(n.startswith(("extract/", "sanitize/")) for n in names))
-        # nothing in the bundle is a value
+        # nothing in the bundle is a value. The card is looked for whole, spaced
+        # or not: four of its digits also turn up by chance inside the bundle's
+        # sha256 hex (CI run 2483 failed on "...81934111").
         self.assertNotIn(b"m@example.com", plain)
-        self.assertNotIn(b"4111", plain)
+        self.assertNotIn(b"4111 1111 1111 1111", plain)
+        self.assertNotIn(b"4111111111111111", plain)
         self.assertIn(b"[PII_EMAIL_1]", plain)  # sanitized head is there, as designed
         self.assertEqual(set(inv["members"]), set(names))
 

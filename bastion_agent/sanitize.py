@@ -12,8 +12,12 @@ SECOND store:
     <out>/sanitize.summary.json
 
 From here on, later stages read ONLY the sanitized store. The extract
-store keeps the plaintext and stays on this machine; the vault is the
-only way back (`/rehydrate` semantics, local).
+store keeps the plaintext. This agent never serves it, but it sits in
+<out>, by default <root>/.agent/ inside the folder, where a sync provider
+or a host whose folder grant has `read` can reach it through the bastion.
+The vault is the only way back from a token to a value (`/rehydrate`
+semantics): a file on this machine in-process, the service's own with
+PII_ADDR.
 
 Two ways to reach the sterilizer, chosen from the environment, never the
 manifest (no addresses in manifests — docs/pii-sterilization.md):

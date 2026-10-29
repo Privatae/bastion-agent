@@ -1,9 +1,10 @@
 """bastion agent query endpoint — the container on the mesh.
 
-The other half of "access moves, data does not". Serves the owner's host
-and the manifest's grantees over MUTUAL TLS; nothing here ever reads the
-extract store, the vault, or the vectors' raw table for a client — the
-only bytes that leave are sanitized chunks and catalog cards.
+Serves the owner's host and the manifest's grantees over MUTUAL TLS;
+nothing here ever reads the extract store, the vault, or the vectors' raw
+table for a client. What it returns is sanitized chunks, catalog cards, the
+run state and health. (The bastion's own `read` op is not this server: it
+reads files in the granted folder as they are on disk.)
 
 Identity is the presented client certificate:
   - the TLS layer requires a client cert that chains to FREEAGENT_CA_ROOT
@@ -16,7 +17,7 @@ Ops (JSON over HTTPS):
   POST /search      {query, k?}           search  (owner, grantee w/ op)
   POST /read_range  {doc, start, end}     read_range (owner, grantee w/ op)
                                           from the SANITIZED store only,
-                                          <= READ_RANGE_MAX bytes
+                                          <= READ_RANGE_MAX characters
   Both answer with `sanitize_mode`, the mode the sanitize stage recorded for
   the text in the reply ("flag" or "sterilize"; the weakest across a
   search's hits; "unknown" when the record does not vouch for that text; a
@@ -414,7 +415,8 @@ class Handler(BaseHTTPRequestHandler):
                 start = int(req.get("start", 0))
                 end = int(req["end"])
                 if not isinstance(doc, str) or len(doc) != 64 or not all(c in "0123456789abcdef" for c in doc):
-                    raise ValueError("doc must be a sanitized-document sha256")
+                    raise ValueError("doc must be a document id: the original file's sha256, "
+                                     "64 lowercase hex")
                 if start < 0 or end <= start:
                     raise ValueError("start/end out of order")
                 end = min(end, start + READ_RANGE_MAX)

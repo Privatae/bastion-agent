@@ -9,10 +9,17 @@ It is deployed **from a grant**, and you do not install it yourself: the bastion
 (`version.json.<first 16 hex of its sha256>.sig`) against the keys compiled into the bastion, downloads the `.pyz`
 and checks it against the sha256 in that signed manifest,
 mints a P-256 identity per store, writes and signs a manifest from the grant you
-approved, and supervises `sweep` and `serve`. Your files stay on the machine;
-what crosses the tunnel is what the grant's mask allows: catalog cards, and
-the sanitized excerpts that `search` and `read_range` return, each reply naming
-the sanitize mode that made it (`sanitize_mode`, [serve.md](docs/serve.md)).
+approved, and supervises `sweep` and `serve`. Nothing is uploaded or synced;
+your Host asks, and gets what the grant's mask allows. What the agent returns
+is sanitized: catalog cards, search hits, and the excerpts a `read_range` by
+document id returns, each reply naming the sanitize mode that made it
+(`sanitize_mode`, [serve.md](docs/serve.md)). A grant with `read`, which a
+connected folder has by default, also lets the Host ask the bastion itself for
+the folder's file names, sizes and modification times, and for one range of
+one file per read, up to 512 KiB, as it is on disk and not sanitized. That
+includes the agent's `.agent/` folder and the plaintext it holds, on every
+machine where the bastion keeps the agent inside the folder
+([runtime.md](docs/runtime.md#where-an-agent-lives-rootagent) says when).
 
 The published version is whatever `privatae.ai/bastion-agent/version.json`
 names. `bastion_agent/VERSION` on `main` is the next release, which may not be
@@ -20,7 +27,7 @@ published yet. Release manifests are published signed from 0.1.13 on, and the
 `.pyz` can be rebuilt from this source and compared
 ([Verify a release](#verify-a-release)).
 
-This repository is free software, licensed under the GNU General Public License version 3 or (at your option) any later version (see `LICENSE`). Copyright Privatae LLC. You may run it, read it, change it and redistribute it under that license. The Host the bastion connects to is separate software and is not covered by this license: a C-Series Host is [Privatae/cseries](https://github.com/Privatae/cseries), under AGPL-3.0-only, and a Host on Privatae's own platform is proprietary software. A member runs their own build on their own machine — nothing here depends on a Privatae-held credential or a Privatae-side build.
+This repository is free software, licensed under the GNU General Public License version 3 or (at your option) any later version (see `LICENSE`). Copyright Privatae LLC. You may run it, read it, change it and redistribute it under that license. The Host the bastion connects to is separate software and is not covered by this license: a C-Series Host is [Privatae/cseries](https://github.com/Privatae/cseries), under AGPL-3.0-only, and a Host on Privatae's own platform is proprietary software. Anyone can build and run the agent from this source with no Privatae account or key; the bastion installs Privatae's signed build, which this source reproduces.
 
 ## What it does
 
@@ -32,10 +39,10 @@ failure stops the run:
 |---|---|---|
 | walk | the map of the folder: files, sizes, types, what the grant excludes | [walk.md](docs/walk.md) |
 | extract | text out of each file, with built-in extractors or local tools | [extract.md](docs/extract.md) |
-| sanitize | replaces the personal data its mode finds with tokens; the originals stay in a vault on this machine. In the mode the bastion deploys it does not find names, street addresses or dates of birth ([below](#how-the-bastion-runs-it)) | [sanitize.md](docs/sanitize.md), [pii-sterilization.md](docs/pii-sterilization.md) |
-| chunk, embed | splits the text and embeds it with a model on this machine | [embed.md](docs/embed.md) |
+| sanitize | replaces the personal data its mode finds with tokens; the originals stay in a vault on this machine, or in a PII service's own vault when `PII_ADDR` names one. In the mode the bastion deploys it does not find names, street addresses or dates of birth ([below](#how-the-bastion-runs-it)) | [sanitize.md](docs/sanitize.md), [pii-sterilization.md](docs/pii-sterilization.md) |
+| chunk, embed | splits the text and embeds it with the model server `EMBED_URL` names: by default, and always under the bastion, the Ollama port on the same machine | [embed.md](docs/embed.md) |
 | catalog | the curated dataset built from the stages above | [catalog.md](docs/catalog.md) |
-| seal | packs an allowlisted bundle of the catalog and encrypts it with age to the owner and the manifest's named recipients; the one way a dataset leaves the machine | [seal.md](docs/seal.md) |
+| seal | packs an allowlisted bundle of the catalog into one file and encrypts it with age to the owner and the manifest's named recipients; it writes the file into the output folder and sends it nowhere | [seal.md](docs/seal.md) |
 
 `serve` answers queries over the index with mutual TLS, returning chunks and
 catalog cards from the sanitized text ([serve.md](docs/serve.md)). The gate refuses an
@@ -56,13 +63,22 @@ For each shared folder the bastion:
 - mints the agent its own identity and writes and signs its manifest from the
   grant, so the agent works only on what you granted;
 - sets the sanitize stage to `flag` mode: rules only, no model. It replaces
-  e-mail addresses, phone numbers, card, bank and social security numbers, IP
-  and MAC addresses and keys. **It does not find names, street addresses or
-  dates of birth**, so text a Host receives from the agent still contains them.
-  `sterilize` mode adds a model on this machine that looks for those, and the
-  bastion does not set it ([sanitize.md](docs/sanitize.md#modes-manifest-sanitizemode));
-- points the embed stage at the model server on this machine (a local ollama)
-  and at nothing else;
+  e-mail addresses, phone numbers, US social security numbers, card numbers,
+  IBANs, US routing numbers that follow a word such as "routing", Bitcoin
+  addresses that start with 1 or 3, IP and MAC addresses, and keys and tokens
+  of known formats ([the full list](docs/pii-sterilization.md#the-rules-pass-piidetectpy)).
+  It does not look for other bank account numbers, other crypto addresses or
+  ID numbers such as passport numbers, though digits in one can still be
+  replaced when they look like a phone, card or social security number.
+  **It does not find names, street addresses or dates of birth**, so text a
+  Host receives from the agent still contains them. `sterilize` mode adds a
+  model that looks for those. When `PII_ADDR` is set, the unsanitized text
+  goes to the PII service it names. Otherwise the model is the server
+  `LLM_URL` names, which is sent the unsanitized text, or, with
+  `PII_RECALL=gliner`, one that runs inside the agent. The bastion does not
+  set this mode ([sanitize.md](docs/sanitize.md#where-the-sterilizer-runs));
+- points the embed stage at `127.0.0.1:11434`, the Ollama port on the same
+  machine, and at nothing else;
 - runs `serve` on the loopback address only, with mutual TLS, so the bastion is
   the only client;
 - keeps the personal-data vault in the bastion's own state directory rather

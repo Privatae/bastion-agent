@@ -1,7 +1,8 @@
 # bastion agent `chunk` and `embed` stages, and `search`
 
 `chunk` splits the sanitized text into overlapping windows, `embed` turns each
-window into a vector with a model on this machine, and `search` answers a
+window into a vector with the model server `EMBED_URL` names (by default the
+Ollama port on the same machine), and `search` answers a
 query against those vectors. They are `bastion_agent/embed.py`, standard
 library only.
 
@@ -9,9 +10,10 @@ library only.
 
 `python3 -m bastion_agent chunk <manifest> [--out DIR] [--require-signed]`
 reads the **sanitized** store (never the extract store) and writes
-`chunks.jsonl`: one row per window (`chunk_id`, `doc` (the sanitized text's
-sha256), `idx`, `start` and `end` character offsets, `chars`, `tokens`, `v`),
-sorted by `(doc, idx)`, plus `chunk.summary.json`.
+`chunks.jsonl`: one row per window (`chunk_id`, `doc` (the original file's
+sha256, the id the extract and sanitized stores share), `idx`, `start` and
+`end` character offsets, `chars`, `tokens`, `v`), sorted by `(doc, idx)`, plus
+`chunk.summary.json`.
 
 - Windows are `embed.chunk.size_tokens` long and advance by
   `size - overlap` tokens; the last window may be shorter. With any overlap,
@@ -27,8 +29,8 @@ sorted by `(doc, idx)`, plus `chunk.summary.json`.
   next. A changed document has a new sha256, so all of its windows get new ids
   and are embedded again. Identical windows inside one document (a repeated
   paragraph) share an id and are embedded once.
-- Duplicate documents (the same sanitized content at several paths) are
-  chunked once.
+- Duplicate documents (the same file content at several paths) are chunked
+  once.
 
 ## embed
 

@@ -123,12 +123,18 @@ class DoctrineTests(unittest.TestCase):
     def test_host_catalog_needs_seal(self):
         doc = with_(FULL, stages=["walk", "extract", "sanitize", "chunk", "embed", "catalog"],
                     grants=None, sink={"catalog": "host", "vectors": "local", "plaintext": "never"})
-        self.assertTrue(any("unsealed" in e for e in errors_of(doc)))
+        errs = errors_of(doc)
+        self.assertTrue(any("sink: catalog 'host' requires the 'seal' stage" in e for e in errs))
+        # serve's replies are never sealed, so the message must not claim that
+        # nothing leaves, or is served, unsealed
+        self.assertFalse(any("unsealed" in e for e in errs), errs)
 
     def test_grant_needs_seal(self):
         doc = with_(FULL, stages=["walk", "extract", "sanitize", "chunk", "embed", "catalog"],
                     sink={"catalog": "local", "vectors": "local", "plaintext": "never"})
-        self.assertTrue(any("grants: any grant requires the 'seal'" in e for e in errors_of(doc)))
+        errs = errors_of(doc)
+        self.assertTrue(any("grants: any grant requires the 'seal'" in e for e in errs))
+        self.assertFalse(any("unsealed" in e for e in errs), errs)
 
     def test_grant_search_needs_mask_search(self):
         doc = with_(FULL, mask=["read", "index", "summarize"])
