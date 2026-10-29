@@ -26,9 +26,11 @@ the stage refuses otherwise) and writes:
 
 `DIR` defaults as for the walk (`<root>/.agent/` for one root). This text
 store is the plaintext of every file in scope. The agent never serves it, but
-by default it sits in the folder: if the folder is synced, the sync provider
-gets a copy, and a host whose folder grant has `read` can read it through the
-bastion like any other file; see [runtime.md](runtime.md#where-an-agent-lives-rootagent).
+by default it sits in the folder, so if the folder is synced, the sync provider
+gets a copy. A bastion from 0.58.1 on never serves `.agent/` to a host. On an
+older bastion, a host whose folder grant has `read` can read the store like
+any other file unless the grant excludes `.agent`; see
+[runtime.md](runtime.md#where-an-agent-lives-rootagent).
 
 | `status` | Meaning |
 |---|---|

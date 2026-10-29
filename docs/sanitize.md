@@ -12,9 +12,10 @@ reads the extract index and store and writes:
 
 - **`sanitize/<aa>/<sha256>.txt`**: the sanitized text store. Personal data is
   replaced by stable `[PII_TYPE_n]` tokens. **From this stage on, later
-  stages read only this store.** The extract store keeps the plaintext; the
-  agent never serves it, but while it is in the folder (the default), a
-  folder grant with `read` reaches it through the bastion
+  stages read only this store.** The extract store keeps the plaintext. The
+  agent never serves it, and while it is in `.agent/` (the default) a
+  bastion from 0.58.1 on does not either. An older bastion lets a folder
+  grant with `read` reach it there unless the grant excludes `.agent`
   ([runtime.md](runtime.md#where-an-agent-lives-rootagent)).
 - **`vault.db`**: the token-to-value map (in-process mode only), created 0600
   under umask 077. It is the only way back from a token to a value, and it

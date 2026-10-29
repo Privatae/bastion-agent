@@ -16,10 +16,14 @@ document id returns, each reply naming the sanitize mode that made it
 (`sanitize_mode`, [serve.md](docs/serve.md)). A grant with `read`, which a
 connected folder has by default, also lets the Host ask the bastion itself for
 the folder's file names, sizes and modification times, and for one range of
-one file per read, up to 512 KiB, as it is on disk and not sanitized. That
-includes the agent's `.agent/` folder and the plaintext it holds, on every
-machine where the bastion keeps the agent inside the folder
-([runtime.md](docs/runtime.md#where-an-agent-lives-rootagent) says when).
+one file per read, up to 512 KiB, as it is on disk and not sanitized. From
+bastion 0.58.1 on, none of this reaches the agent's own `.agent/` folder: the
+bastion leaves every folder named `.agent` out of a listing and refuses any
+request for a path in one. An older bastion serves `.agent/` like any other
+folder, including the unsanitized text the agent extracted from every file,
+unless `.agent` is among the grant's excluded paths
+([runtime.md](docs/runtime.md#where-an-agent-lives-rootagent) says when the
+agent's folder is inside the shared folder).
 
 The published version is whatever `privatae.ai/bastion-agent/version.json`
 names. `bastion_agent/VERSION` on `main` is the next release, which may not be

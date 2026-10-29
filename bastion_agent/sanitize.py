@@ -14,7 +14,10 @@ SECOND store:
 From here on, later stages read ONLY the sanitized store. The extract
 store keeps the plaintext. This agent never serves it, but it sits in
 <out>, by default <root>/.agent/ inside the folder, where a sync provider
-or a host whose folder grant has `read` can reach it through the bastion.
+can reach it. A bastion from 0.58.1 on never serves a folder named .agent
+to a host; an older bastion does to a host whose folder grant has `read`
+unless the grant excludes .agent, and any bastion serves an <out> inside
+the folder under another name.
 The vault is the only way back from a token to a value (`/rehydrate`
 semantics): a file on this machine in-process, the service's own with
 PII_ADDR.

@@ -53,7 +53,9 @@ refuses adds a test that it refuses.
   allows. There is no plaintext sink:
   `sink.plaintext` is `never` and has no other value. (The bastion's own
   `read` op is separate: it returns ranges of any file in the granted folder
-  that the grant does not exclude, as they are on disk, `.agent/` included.)
+  that the grant does not exclude, as they are on disk. From bastion 0.58.1
+  on it returns nothing in `.agent/`; an older bastion does unless the grant
+  excludes `.agent`.)
 - **Sanitize before anything is written for later stages.** Chunks, vectors,
   keywords, titles, summaries, the catalog and everything `serve` returns come
   from the sanitized store, never the extract store. A test that searches an

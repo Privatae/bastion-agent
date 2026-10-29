@@ -29,9 +29,10 @@ carried them, although they do not change what the `.pyz` does.
   the sanitized text, and the agent sends no file or extracted text to a
   Host. A folder grant with `read`, the default, also lets the Host ask the
   bastion itself for the folder's file names, sizes and times and for raw
-  ranges of its files, up to 512 KiB per read, including `.agent/` and the
-  plaintext extract store in it wherever the bastion keeps the agent inside
-  the folder; adding `.agent` to the grant's excluded paths stops that.
+  ranges of its files, up to 512 KiB per read. From bastion 0.58.1 on, none
+  of that reaches the agent's own `.agent/` folder. An older bastion serves
+  `.agent/` and the plaintext extract store in it wherever it keeps the agent
+  inside the folder, unless the grant's excluded paths list `.agent`.
   `seal` writes its bundle and sends it nowhere. A file card's `sha256` is
   the original file's hash.
 - **`flag` mode's limits are listed.** It does not look for bank account

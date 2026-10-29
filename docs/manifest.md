@@ -207,7 +207,7 @@ One of `15m`, `hourly`, `daily`, `manual`.
 
 | Field | Required | Rules |
 |---|---|---|
-| `catalog` | yes | `local`: the catalog stays here, and the host queries it through `serve`. `host`: the sealed catalog is meant for the owner's host. The agent writes it to `<out>/sealed/` and neither the agent nor the bastion sends it. When `<out>` is inside the folder (the default, `<root>/.agent/`), a host whose folder grant has `read` can fetch it like any other file. Requires the `seal` stage. |
+| `catalog` | yes | `local`: the catalog stays here, and the host queries it through `serve`. `host`: the sealed catalog is meant for the owner's host. The agent writes it to `<out>/sealed/` and neither the agent nor the bastion sends it. In the default `<out>`, `<root>/.agent/`, a bastion from 0.58.1 on never serves it to a host; on an older bastion, a host whose folder grant has `read` can fetch it like any other file unless the grant excludes `.agent`. When `<out>` is inside the folder under any other name, any bastion serves it to such a host like any other file. Requires the `seal` stage. |
 | `vectors` | yes | `local`, the only value. |
 | `plaintext` | yes | `never`, the only value, ever. It is there so the rule is written down in every manifest and can be searched for, not remembered. |
 | `seal_to` | no | List of recipient keys, 1–128 characters each, no duplicates. Requires the `seal` stage. The owner's key is always added by the agent and need not be listed. |
